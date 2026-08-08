@@ -2,6 +2,8 @@
 
 [SPEC.md](../SPEC.md) が「何を作るか」、本ドキュメントが「何で、どう作るか」を扱う。
 
+> **未確定**: ホストを 4 プラットフォームすべてネイティブ実装するか、大部分を Dart/Flutter で共通化するかを検討中。[ADR 0001](adr/0001-host-implementation-stack.md) を参照。本ドキュメントはネイティブ案を記述したものであり、ADR 0001 の結論次第で macOS / Windows / Android の節は差し替わる。**iOS Broadcast Extension が完全ネイティブであることと、ビューアが TypeScript であることはどちらの案でも変わらない。**
+
 ---
 
 ## 0. サマリ
