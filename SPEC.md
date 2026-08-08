@@ -403,8 +403,11 @@ TypeScript + Vite。フレームワークは使わない（映像面 + オーバ
 │   ├── android/             Kotlin（M4〜）
 │   └── ios/                 Swift + Broadcast Extension（M5〜）
 └── docs/
+    ├── STACK.md             技術スタックと実装方法
     └── adr/                 アーキテクチャ決定記録
 ```
+
+具体的なライブラリ選定、キャプチャと WebRTC の接続部の実装、M0 の実装順は [docs/STACK.md](docs/STACK.md) を参照。本ドキュメントは「何を作るか」に限定する。
 
 ---
 
