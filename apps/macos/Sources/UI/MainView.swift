@@ -14,7 +14,7 @@ struct MainView: View {
         // 権限はシステム設定側でいつでも変わりうる。未許可の間はポーリングして追従する
         .task(id: session.permissionGranted) {
             if session.permissionGranted {
-                await session.refreshDisplays()
+                session.refreshDisplays()
                 return
             }
             while !Task.isCancelled {
@@ -42,7 +42,7 @@ struct MainView: View {
         HStack(spacing: 12) {
             Picker("ディスプレイ", selection: Binding(
                 get: { session.selectedDisplayID },
-                set: { session.selectedDisplayID = $0 }
+                set: { session.selectDisplay($0) }
             )) {
                 ForEach(session.displays) { display in
                     Text("\(display.name) (\(display.pixelWidth)×\(display.pixelHeight))")
@@ -54,13 +54,13 @@ struct MainView: View {
 
             switch session.captureState {
             case .idle, .failed:
-                Button("開始") { Task { await session.startCapture() } }
+                Button("開始") { session.startCapture() }
                     .buttonStyle(.borderedProminent)
                     .disabled(session.selectedDisplayID == nil)
             case .starting:
                 ProgressView().controlSize(.small)
             case .running:
-                Button("停止") { Task { await session.stopCapture() } }
+                Button("停止") { session.stopCapture() }
             }
 
             Spacer()

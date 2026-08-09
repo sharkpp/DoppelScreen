@@ -12,7 +12,7 @@ import ScreenCaptureKit
 /// またフレームごとに `MainActor` へ hop しない。統計は呼び出し側が任意の頻度で読む。
 final class ScreenCapturer: NSObject, @unchecked Sendable {
 
-    struct Configuration: Sendable {
+    struct Configuration: Sendable, Equatable {
         var displayID: CGDirectDisplayID
         var width: Int
         var height: Int
@@ -44,6 +44,7 @@ final class ScreenCapturer: NSObject, @unchecked Sendable {
     private let stateLock = NSLock()
     private var stream: SCStream?
     private var frameHandler: (@Sendable (CMSampleBuffer) -> Void)?
+    private var stopHandler: (@Sendable (Error) -> Void)?
     private var statistics = Statistics()
 
     // MARK: - 問い合わせ
@@ -61,6 +62,12 @@ final class ScreenCapturer: NSObject, @unchecked Sendable {
     /// フレームの転送先を設定する。ハンドラはキャプチャ用キューから呼ばれる。
     func setFrameHandler(_ handler: (@Sendable (CMSampleBuffer) -> Void)?) {
         stateLock.withLock { frameHandler = handler }
+    }
+
+    /// ストリームが自発的に停止したときの通知先。ディスプレイの切断や権限剥奪で呼ばれる。
+    /// これを拾わないと、実際には止まっているのに UI が「実行中」のまま残る。
+    func setStopHandler(_ handler: (@Sendable (Error) -> Void)?) {
+        stateLock.withLock { stopHandler = handler }
     }
 
     func currentStatistics() -> Statistics {
@@ -89,7 +96,7 @@ final class ScreenCapturer: NSObject, @unchecked Sendable {
         // VideoToolbox がそのまま扱えるフォーマット
         streamConfiguration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
 
-        let stream = SCStream(filter: filter, configuration: streamConfiguration, delegate: nil)
+        let stream = SCStream(filter: filter, configuration: streamConfiguration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
         try await stream.startCapture()
 
@@ -111,6 +118,24 @@ final class ScreenCapturer: NSObject, @unchecked Sendable {
         guard let running else { return }
         try? await running.stopCapture()
         log.info("capture stopped")
+    }
+}
+
+// MARK: - SCStreamDelegate
+
+extension ScreenCapturer: SCStreamDelegate {
+    /// ディスプレイの切断、画面構成の変更、権限の剥奪などでストリームが落ちたときに呼ばれる。
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        // `stop()` は保持を外してから停止するため、自発的な停止だけがここに残る
+        let handler = stateLock.withLock { () -> (@Sendable (Error) -> Void)? in
+            guard self.stream === stream else { return nil }
+            self.stream = nil
+            return stopHandler
+        }
+
+        guard let handler else { return }
+        log.error("capture stopped unexpectedly: \(error.localizedDescription)")
+        handler(error)
     }
 }
 
