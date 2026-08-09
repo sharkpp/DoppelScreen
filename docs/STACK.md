@@ -144,6 +144,14 @@ SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載
 ### 2.5 権限とネットワーク
 
 - 画面収録: `CGPreflightScreenCaptureAccess()` で状態確認、`CGRequestScreenCaptureAccess()` で要求。拒否されている場合は `x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture` でシステム設定へ誘導する。
+
+#### 画面収録権限の落とし穴（3 つとも実装で対処済み）
+
+1. **`CGRequestScreenCaptureAccess()` がプロンプトを出せるのはアプリごとに一度きり。** 以降は何も起きず false を返すだけで、ボタンが無反応に見える。「一度尋ねたか」を `UserDefaults` に記録し、二度目以降はシステム設定へ直接誘導する。
+2. **システム設定で許可しても実行中のプロセスには反映されない。再起動が要る。** UI に再起動ボタンを置く（`NSWorkspace.openApplication` + `createsNewApplicationInstance` → 完了後に `NSApp.terminate`）。
+3. **TCC は署名でアプリの同一性を判定する。** 開発ビルドは ad-hoc 署名（`CODE_SIGN_IDENTITY: "-"`）のため cdhash がビルドごとに変わり、**リビルドすると別アプリ扱いになって許可が失われる。** システム設定のリストには残ったまま実際には拒否されるため、原因が分かりにくい。
+   - 対処: `make macos-reset-permission`（`tccutil reset ScreenCapture net.sharkpp.doppelscreen`）で記録を消してから許可し直す。
+   - 恒久対策: 安定した署名 ID（Apple Development 証明書）を使うと Designated Requirement が Team ID + Bundle ID ベースになり、リビルドしても許可が維持される。**開発者アカウントを用意した時点で `project.yml` の `CODE_SIGN_IDENTITY` を切り替える。**
 - ローカルネットワーク: macOS 15+ ではローカルネットワークアクセスの許諾プロンプトが出る。オンボーディングに含める。
 - LAN IP の列挙は `getifaddrs`、変化の監視は `NWPathMonitor`。
 
