@@ -4,7 +4,18 @@ enum MainWindow {
     static let id = "main"
 }
 
+/// 起動引数で通常のアプリと検証モードを振り分ける（`SelfTest`）。
 @main
+enum DoppelScreenMain {
+    @MainActor
+    static func main() {
+        if SelfTest.Options.isRequested(CommandLine.arguments) {
+            SelfTest.run(arguments: CommandLine.arguments)
+        }
+        DoppelScreenApp.main()
+    }
+}
+
 struct DoppelScreenApp: App {
     @State private var session = SessionController()
 

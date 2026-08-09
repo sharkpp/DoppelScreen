@@ -23,11 +23,16 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.sharkpp.doppelscreen
         PRODUCT_NAME: DoppelScreen
-        # TCC（画面収録）はバンドル ID と署名で許諾を記憶する。
-        # 開発中は ad-hoc 署名で足りるが、署名が変わると再許諾を求められる。
-        CODE_SIGN_IDENTITY: "-"
+        # TCC（画面収録）は署名でアプリの同一性を判定する。ad-hoc 署名では
+        # ビルドのたびに cdhash が変わって許可が失効するため、安定した署名 ID を使う。
+        # 証明書は `make macos-dev-certificate` で作る。
+        # Apple Development 証明書を用意したらここを差し替える。
+        CODE_SIGN_IDENTITY: "DoppelScreen Development"
         CODE_SIGN_STYLE: Manual
         ENABLE_HARDENED_RUNTIME: YES
+        # Xcode 16 の SwiftUI プレビュー用 dylib。Team ID を持たない自己署名では
+        # 本体と Team ID が食い違い、dyld が読み込みを拒否して起動時にクラッシュする
+        ENABLE_DEBUG_DYLIB: NO
         # 画面収録とローカルサーバ待受はサンドボックスと両立しない（SPEC.md §6.1）
         ENABLE_APP_SANDBOX: NO
     info:
