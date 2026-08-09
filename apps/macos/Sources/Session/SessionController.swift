@@ -16,6 +16,7 @@ final class SessionController {
     }
 
     private(set) var permissionGranted: Bool = ScreenRecordingPermission.isGranted
+    private(set) var hasRequestedPermissionBefore: Bool = ScreenRecordingPermission.hasRequestedBefore
     private(set) var displays: [DisplayInfo] = []
     private(set) var captureState: CaptureState = .idle
     private(set) var statistics = ScreenCapturer.Statistics()
@@ -47,11 +48,17 @@ final class SessionController {
 
     func refreshPermission() {
         permissionGranted = ScreenRecordingPermission.isGranted
+        hasRequestedPermissionBefore = ScreenRecordingPermission.hasRequestedBefore
     }
 
+    /// プロンプトが出せなかった場合（＝過去に一度尋ねている）は、押しても何も起きないと
+    /// 分からないため、そのままシステム設定を開いて次の手を示す。
     func requestPermission() {
-        ScreenRecordingPermission.request()
+        let granted = ScreenRecordingPermission.request()
         refreshPermission()
+        if !granted {
+            ScreenRecordingPermission.openSystemSettings()
+        }
     }
 
     // MARK: - ディスプレイ

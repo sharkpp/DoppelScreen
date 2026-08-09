@@ -11,8 +11,17 @@ struct MainView: View {
                 OnboardingView(session: session)
             }
         }
-        .task {
-            await session.refreshDisplays()
+        // 権限はシステム設定側でいつでも変わりうる。未許可の間はポーリングして追従する
+        .task(id: session.permissionGranted) {
+            if session.permissionGranted {
+                await session.refreshDisplays()
+                return
+            }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                session.refreshPermission()
+                if session.permissionGranted { break }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             session.refreshPermission()
