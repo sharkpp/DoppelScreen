@@ -149,13 +149,56 @@ SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載
 
 1. **`CGRequestScreenCaptureAccess()` がプロンプトを出せるのはアプリごとに一度きり。** 以降は何も起きず false を返すだけで、ボタンが無反応に見える。「一度尋ねたか」を `UserDefaults` に記録し、二度目以降はシステム設定へ直接誘導する。
 2. **システム設定で許可しても実行中のプロセスには反映されない。再起動が要る。** UI に再起動ボタンを置く（`NSWorkspace.openApplication` + `createsNewApplicationInstance` → 完了後に `NSApp.terminate`）。
-3. **TCC は署名でアプリの同一性を判定する。** 開発ビルドは ad-hoc 署名（`CODE_SIGN_IDENTITY: "-"`）のため cdhash がビルドごとに変わり、**リビルドすると別アプリ扱いになって許可が失われる。** システム設定のリストには残ったまま実際には拒否されるため、原因が分かりにくい。
-   - 対処: `make macos-reset-permission`（`tccutil reset ScreenCapture net.sharkpp.doppelscreen`）で記録を消してから許可し直す。
-   - 恒久対策: 安定した署名 ID（Apple Development 証明書）を使うと Designated Requirement が Team ID + Bundle ID ベースになり、リビルドしても許可が維持される。**開発者アカウントを用意した時点で `project.yml` の `CODE_SIGN_IDENTITY` を切り替える。**
+3. **TCC は署名でアプリの同一性を判定する。** ad-hoc 署名（`CODE_SIGN_IDENTITY: "-"`）では cdhash がビルドごとに変わり、**リビルドすると別アプリ扱いになって許可が失われる。** システム設定のリストには残ったまま実際には拒否されるため、原因が分かりにくい。
+   - **対処済み: 開発用の自己署名証明書で署名する。** `make macos-dev-certificate` でログインキーチェーンに作り、`project.yml` の `CODE_SIGN_IDENTITY` に指定している。Designated Requirement が `identifier "net.sharkpp.doppelscreen" and certificate leaf = H"…"` になり、cdhash に依存しなくなるため**リビルドしても許可が維持される**。検証モード（§2.7）を手動許可なしで回すための前提でもある。
+   - Apple Development 証明書を用意したら `CODE_SIGN_IDENTITY` を差し替えるだけで移行できる。
+   - 署名 ID を切り替えた直後は同一性が変わるため、一度だけ `make macos-reset-permission` してから許可し直す。
+
+   証明書作成時の落とし穴（`scripts/create-dev-certificate.sh` で対処済み）:
+   - Security.framework は**空パスワードの PKCS#12 を読めない**。使い捨てのパスワードを付ける
+   - OpenSSL 3 既定の AES-256-CBC + PBKDF2 も受け付けない。`openssl pkcs12 -export -legacy` で書き出す
+   - `extendedKeyUsage=codeSigning` と `security add-trusted-cert -p codeSign` の両方が要る。どちらかが欠けると `find-identity -v -p codesigning` が有効な ID として扱わない
+   - `security import -T /usr/bin/codesign` を付けても、**初回ビルドでキーチェーンの確認ダイアログが 1 回だけ出る**。「常に許可」を押す。非対話で抑えるには `security set-key-partition-list` が必要だが、ログインキーチェーンのパスワード入力を伴うため行わない
+   - **`ENABLE_DEBUG_DYLIB` を `NO` にする。** Xcode 16 は既定で SwiftUI プレビュー用の `*.debug.dylib` を分離して出力する。Team ID を持たない自己署名では本体と Team ID が食い違い、`dyld` が読み込みを拒否して**起動即クラッシュ**する（`Library not loaded: @rpath/DoppelScreen.debug.dylib`）
 - ローカルネットワーク: macOS 15+ ではローカルネットワークアクセスの許諾プロンプトが出る。オンボーディングに含める。
 - LAN IP の列挙は `getifaddrs`、変化の監視は `NWPathMonitor`。
 
-### 2.6 M0 の実装順
+### 2.6 ディスプレイ構成の変更に追従する
+
+ディスプレイは実行中に増減し、解像度も変わる。追従しないと **UI の一覧・選択と、実際に動いているストリームが食い違う**。3 経路すべてを塞ぐ。
+
+| 経路 | 対処 |
+| --- | --- |
+| 接続・切断・解像度変更・配置変更 | `NSApplication.didChangeScreenParametersNotification` を `SessionController` が購読して一覧を取り直す。**UI ではなくコントローラで購読する**（ウィンドウを閉じてメニューバーだけになっても追従させるため） |
+| キャプチャ中のディスプレイの解像度変更 | ディスプレイ ID が変わらないので選択の変化として検知できない。**`ScreenCapturer.Configuration` そのものを比較**して、違えば貼り直す |
+| ストリームの自発的な停止 | `SCStreamDelegate.stream(_:didStopWithError:)`。`delegate: nil` で作ると握り潰され、止まっているのに UI が「実行中」のまま残る |
+
+- キャプチャ中のディスプレイが**消えた**場合は、黙って別の画面へ切り替えない。停止して理由を表示する（意図しない画面を映し続けるほうが有害）。
+- 開始・停止・再構成は UI 操作とディスプレイ構成変更の両方から届く。順序が入れ替わると再起動が競合するため、**すべて単一の直列キューに通す**（`SessionController.enqueue`）。
+
+### 2.7 検証モード（`--selftest`）
+
+人がプレビューを目視しなくてもキャプチャの健全性を確認できるようにする。
+
+```
+make macos-selftest
+make macos-selftest SELFTEST_ARGS="--display 1 --duration 5"
+```
+
+UI を出さずに、権限判定 → ディスプレイ列挙 → 指定秒キャプチャ → **最終フレームを PNG 保存** → レポート JSON を書き出して終了する。出力は `apps/macos/build/selftest/`（`report.json` と `frame.png`）。
+
+- `deliveredFrames` が伸びていればキャプチャが届いている。`idleFrames` が伸びていれば静止時の抑制（SPEC.md §4.3）が効いている。実測では、操作中のメインディスプレイが 3 秒で 154 配信 / 13 idle、静止した仮想ディスプレイが 2 秒で **1 配信 / 77 idle** と、はっきり差が出る。
+- `displays` にディスプレイ一覧が入るため、抜き差しの前後で実行すれば**列挙が実態と合っているか**を確認できる。
+- `frame.png` を開けば実際に何が映っていたかが分かる。
+
+実装上の注意:
+
+- **`open` で起動する。実行ファイルを直接叩かない。** TCC は「責任プロセス」で許諾を判定するため、ターミナルから直接起動するとターミナルの許諾が参照され、結果が実態と食い違う。
+- **`open -W` は使えない。** 検証モードは `NSApplication` を起動しないので LaunchServices が追跡できず、`kevent() failed: No such process` になる。レポートの出現をポーリングして待つ。
+- **PNG の書き出しはストリームを止める前に行う。** 停止後はピクセルバッファが回収されうる。
+- `LocalServer` の `/debug` には載せない。LAN に開くサーバへデバッグ経路を常駐させたくないのと、起動〜キャプチャ〜終了を通しで見るほうが回帰検出に向くため。
+
+### 2.8 M0 の実装順
 
 層を積み上げる。各ステップで動作を確認してから次へ進む。
 
