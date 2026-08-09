@@ -1,0 +1,16 @@
+# XcodeGen が生成する。project.yml が正であり、これらはコミットしない
+*.xcodeproj
+apps/macos/Sources/Info.plist
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Node
+node_modules/
+dist/
+
+# macOS
+.DS_Store

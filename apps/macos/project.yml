@@ -1,0 +1,41 @@
+name: DoppelScreen
+
+options:
+  bundleIdPrefix: net.sharkpp
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  DoppelScreen:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.sharkpp.doppelscreen
+        PRODUCT_NAME: DoppelScreen
+        # TCC（画面収録）はバンドル ID と署名で許諾を記憶する。
+        # 開発中は ad-hoc 署名で足りるが、署名が変わると再許諾を求められる。
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: YES
+        # 画面収録とローカルサーバ待受はサンドボックスと両立しない（SPEC.md §6.1）
+        ENABLE_APP_SANDBOX: NO
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleName: DoppelScreen
+        CFBundleDisplayName: DoppelScreen
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "Copyright © 2026 sharkpp.net"
