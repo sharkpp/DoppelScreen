@@ -26,7 +26,11 @@
       "Glob",
       "Grep",
       "Bash(make web-test *)",
-      "Bash(make e2e *)"
+      "Bash(make e2e *)",
+      "Bash(security find-certificate *)",
+      "Bash(security list-keychains *)",
+      "Bash(make macos-dev-certificate *)",
+      "Bash(git restore *)"
     ],
     "deny": [
       "Bash(rm -rf /)",
