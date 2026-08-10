@@ -55,6 +55,38 @@ test("ホストの画面がブラウザに映る", async ({ page }) => {
   }
 });
 
+// 自己署名証明書なので警告を通す。ビューア端末では初回 1 回だけ人が通す（SPEC.md §5.3）
+test.describe("HTTPS 経路", () => {
+  test.use({ ignoreHTTPSErrors: true });
+
+  test("HTTPS でも映る", async ({ page }) => {
+    const host = new Host();
+    const handshake = await host.start(60);
+
+    try {
+      expect(handshake.securePort, "HTTPS の待受が立っていません").toBeTruthy();
+      await page.goto(
+        `https://127.0.0.1:${handshake.securePort}/#${handshake.token}`,
+      );
+
+      await expect
+        .poll(
+          () =>
+            page
+              .locator("#screen")
+              .evaluate((element: HTMLVideoElement) => element.videoWidth),
+          { message: "映像トラックが届きません", timeout: 30_000 },
+        )
+        .toBeGreaterThan(0);
+
+      const report = await host.report(60_000);
+      expect(report.ok, report.error).toBe(true);
+    } finally {
+      await host.cleanup();
+    }
+  });
+});
+
 test("トークンが違うと接続できない", async ({ page }) => {
   const host = new Host();
   const handshake = await host.start(15);

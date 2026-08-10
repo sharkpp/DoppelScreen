@@ -33,6 +33,8 @@ final class SessionController {
     struct Endpoint: Identifiable, Equatable {
         var interfaceName: String
         var url: String
+        /// HTTPS 経路。証明書を用意できなかった場合は `nil`
+        var secureURL: String?
         var id: String { url }
     }
 
@@ -43,8 +45,11 @@ final class SessionController {
     private(set) var captureState: CaptureState = .idle
     private(set) var statistics = ScreenCapturer.Statistics()
     private(set) var endpoints: [Endpoint] = []
-    /// 実際に確保できたポート。希望の 8422 が埋まっていればずれる
+    /// 実際に確保できたポート。希望の 8422 / 8423 が埋まっていればずれる
     private(set) var serverPort: Int?
+    private(set) var securePort: Int?
+    /// 証明書を用意できなかった理由。HTTP だけで動いている状態を UI に出す
+    private(set) var certificateError: String?
     private(set) var viewerState: ViewerState = .none
 
     let capturer = ScreenCapturer()
@@ -198,6 +203,8 @@ final class SessionController {
         await server.stop()
         endpoints = []
         serverPort = nil
+        securePort = nil
+        certificateError = nil
         await capturer.stop()
         activeConfiguration = nil
         captureState = .idle
@@ -211,12 +218,30 @@ final class SessionController {
     private func startServerIfNeeded() async throws {
         guard serverPort == nil else { return }
 
-        let port = try await server.start(.init(token: token)) { [weak self] connection in
+        let addresses = NetworkInterfaces.lanAddresses()
+        // 証明書が用意できなくても配信自体は成立する。HTTP だけで続ける
+        var identity: SecIdentity?
+        do {
+            identity = try TLSIdentity.current(addresses: addresses.map(\.address))
+        } catch {
+            certificateError = error.localizedDescription
+        }
+
+        let listening = try await server.start(
+            .init(token: token, identity: identity)
+        ) { [weak self] connection in
             Task { @MainActor in self?.acceptViewer(connection) }
         }
-        serverPort = port
-        endpoints = NetworkInterfaces.lanAddresses().map {
-            Endpoint(interfaceName: $0.name, url: "http://\($0.address):\(port)/#\(token)")
+
+        serverPort = listening.port
+        securePort = listening.securePort
+        // 既定は HTTP。証明書の警告が出ないため、成立する環境では最良の体験になる（SPEC.md §5.3）
+        endpoints = addresses.map { address in
+            Endpoint(
+                interfaceName: address.name,
+                url: "http://\(address.address):\(listening.port)/#\(token)",
+                secureURL: listening.securePort.map { "https://\(address.address):\($0)/#\(token)" }
+            )
         }
     }
 

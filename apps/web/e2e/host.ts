@@ -8,7 +8,13 @@ const APP = resolve(
   "../../macos/build/Build/Products/Debug/DoppelScreen.app",
 );
 
-export type Handshake = { port: number; token: string; urls: string[] };
+export type Handshake = {
+  port: number;
+  securePort?: number;
+  token: string;
+  urls: string[];
+  secureUrls: string[];
+};
 export type Report = {
   ok: boolean;
   error?: string;

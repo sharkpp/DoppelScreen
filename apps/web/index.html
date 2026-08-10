@@ -9,6 +9,8 @@
     <!-- muted は自動再生の要件（SPEC.md §8.3）。音声は転送しない -->
     <video id="screen" autoplay playsinline muted></video>
     <div id="status" role="status"></div>
+    <!-- 遅延計測オーバーレイ（SPEC.md §3.3）。s キーで表示を切り替える -->
+    <pre id="stats"></pre>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

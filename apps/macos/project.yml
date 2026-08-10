@@ -30,6 +30,10 @@ packages:
   SwiftNIOTransportServices:
     url: https://github.com/apple/swift-nio-transport-services
     exactVersion: 1.28.0
+  # SAN 付きの自己署名証明書をコードで生成する（docs/STACK.md §2.4）
+  SwiftCertificates:
+    url: https://github.com/apple/swift-certificates
+    exactVersion: 1.13.0
 
 targets:
   DoppelScreen:
@@ -47,6 +51,8 @@ targets:
         product: NIOWebSocket
       - package: SwiftNIOTransportServices
         product: NIOTransportServices
+      - package: SwiftCertificates
+        product: X509
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.sharkpp.doppelscreen

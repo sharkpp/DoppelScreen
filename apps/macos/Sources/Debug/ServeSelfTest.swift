@@ -11,6 +11,9 @@ extension SelfTest {
         var port: Int
         var token: String
         var urls: [String]
+        var secureUrls: [String]
+        /// 証明書を用意できなかった理由。HTTP だけで動いている状態
+        var certificateError: String?
         var viewerConnected: Bool
         var viewerState: String
         var iceConnectionState: String
@@ -24,8 +27,10 @@ extension SelfTest {
     /// 待受開始を E2E 側へ知らせるための受け渡し。ビューアの URL はここから組み立てる
     struct ServeHandshake: Codable {
         var port: Int
+        var securePort: Int?
         var token: String
         var urls: [String]
+        var secureUrls: [String]
     }
 
     @MainActor
@@ -79,8 +84,10 @@ extension SelfTest {
 
         let handshake = ServeHandshake(
             port: port,
+            securePort: session.securePort,
             token: session.token,
-            urls: session.endpoints.map(\.url)
+            urls: session.endpoints.map(\.url),
+            secureUrls: session.endpoints.compactMap(\.secureURL)
         )
         write(handshake, named: "serve.json", to: options.outputDirectory)
 
@@ -97,6 +104,8 @@ extension SelfTest {
             port: port,
             token: session.token,
             urls: handshake.urls,
+            secureUrls: handshake.secureUrls,
+            certificateError: session.certificateError,
             viewerConnected: connected,
             viewerState: describe(session.viewerState),
             iceConnectionState: statistics?.iceConnectionState ?? "none",

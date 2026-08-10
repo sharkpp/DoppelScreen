@@ -52,3 +52,25 @@ body {
   opacity: 0;
   pointer-events: none;
 }
+
+/* 遅延計測オーバーレイ（SPEC.md §3.3） */
+#stats {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.6);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: rgb(255 255 255 / 0.85);
+  pointer-events: none;
+  white-space: pre;
+}
+
+#status a {
+  display: inline-block;
+  margin-top: 6px;
+  color: #6cf;
+}

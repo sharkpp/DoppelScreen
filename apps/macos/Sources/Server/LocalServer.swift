@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import NIOCore
 import NIOHTTP1
 import NIOTransportServices
@@ -12,9 +13,20 @@ import OSLog
 /// ルーティングは実質 2 分岐になる（ビューアを単一 HTML に落としているため）。
 final class LocalServer: @unchecked Sendable {
 
-    struct Configuration: Sendable {
+    // `SecIdentity` が `Sendable` でないため struct 自体も `Sendable` にしない。
+    // 待受の起動時にしか使わず、スレッドを跨がせない
+    struct Configuration {
         var preferredPort: Int = 8422
+        var preferredSecurePort: Int = 8423
         var token: String
+        /// HTTPS 側の証明書。用意できなければ HTTP だけで待ち受ける
+        var identity: SecIdentity?
+    }
+
+    /// 実際に確保できたポート。希望のポートが埋まっていればずれる
+    struct Listening: Sendable, Equatable {
+        var port: Int
+        var securePort: Int?
     }
 
     enum ServerError: LocalizedError {
@@ -33,24 +45,37 @@ final class LocalServer: @unchecked Sendable {
     private let log = Logger(subsystem: "net.sharkpp.doppelscreen", category: "server")
     private let group = NIOTSEventLoopGroup()
     private let lock = NSLock()
-    private var channel: Channel?
+    private var channels: [Channel] = []
 
-    /// 待受を開始し、実際に確保できたポートを返す。
-    /// 希望のポートが使われていたら空きポートへずらす。URL / QR には戻り値を使う（SPEC.md §5.3）。
+    /// HTTP と HTTPS を同時に待ち受ける（SPEC.md §5.3）。扱いに差は設けず、同じハンドラを共有する。
+    /// 希望のポートが使われていたら空きポートへずらす。URL / QR には戻り値を使う。
     ///
     /// `onConnection` は認証を通ったビューアが接続したときに、ネットワーク側のスレッドから呼ばれる。
     @discardableResult
     func start(
         _ configuration: Configuration,
         onConnection: @escaping @Sendable (SignalingConnection) -> Void
-    ) async throws -> Int {
+    ) async throws -> Listening {
         await stop()
 
         let html = try Self.loadViewerPage()
         let token = configuration.token
 
-        let bootstrap = NIOTSListenerBootstrap(group: group)
-            .childChannelInitializer { channel in
+        // HTTPS のポートは HTML に埋め込まず `/config` で答える。
+        // 「ホストはビルド済みの 1 ファイルしか知らない」という前提を崩さない
+        let ports = ResolvedPorts()
+
+        func makeBootstrap(secure: Bool) -> NIOTSListenerBootstrap {
+            var bootstrap = NIOTSListenerBootstrap(group: group)
+            if secure, let identity = configuration.identity {
+                let options = NWProtocolTLS.Options()
+                sec_protocol_options_set_local_identity(
+                    options.securityProtocolOptions,
+                    sec_identity_create(identity)!
+                )
+                bootstrap = bootstrap.tlsOptions(options)
+            }
+            return bootstrap.childChannelInitializer { channel in
                 let upgrader = NIOWebSocketServerUpgrader(
                     // SDP は 1 フレームで届く。既定の 16KB では足りなくなりうる
                     maxFrameSize: 1 << 20,
@@ -80,33 +105,48 @@ final class LocalServer: @unchecked Sendable {
                         )
                     )
                     try channel.pipeline.syncOperations.addHandler(
-                        ViewerPageHandler(html: html), name: Self.viewerPageHandlerName
+                        ViewerPageHandler(html: html, ports: ports), name: Self.viewerPageHandlerName
                     )
                 }
             }
-
-        let channel: Channel
-        do {
-            channel = try await bootstrap.bind(host: "0.0.0.0", port: configuration.preferredPort).get()
-        } catch {
-            log.notice("port \(configuration.preferredPort) is unavailable; falling back to an ephemeral port")
-            channel = try await bootstrap.bind(host: "0.0.0.0", port: 0).get()
         }
 
-        lock.withLock { self.channel = channel }
-        let port = channel.localAddress?.port ?? configuration.preferredPort
-        log.info("local server listening on :\(port)")
-        return port
+        // HTTPS を先に確保する。HTTP 側の `/config` が実ポートを答えられるようにするため
+        if configuration.identity != nil {
+            let secure = try await bind(makeBootstrap(secure: true), preferred: configuration.preferredSecurePort)
+            ports.securePort = secure.localAddress?.port
+            lock.withLock { channels.append(secure) }
+        }
+
+        let plain = try await bind(makeBootstrap(secure: false), preferred: configuration.preferredPort)
+        lock.withLock { channels.append(plain) }
+
+        let listening = Listening(
+            port: plain.localAddress?.port ?? configuration.preferredPort,
+            securePort: ports.securePort
+        )
+        log.info("local server listening on :\(listening.port) / :\(listening.securePort ?? -1)")
+        return listening
+    }
+
+    /// 希望のポートが埋まっていたら空きポートへずらす（SPEC.md §5.3）
+    private func bind(_ bootstrap: NIOTSListenerBootstrap, preferred: Int) async throws -> Channel {
+        do {
+            return try await bootstrap.bind(host: "0.0.0.0", port: preferred).get()
+        } catch {
+            log.notice("port \(preferred) is unavailable; falling back to an ephemeral port")
+            return try await bootstrap.bind(host: "0.0.0.0", port: 0).get()
+        }
     }
 
     func stop() async {
-        let running = lock.withLock { () -> Channel? in
-            let current = channel
-            channel = nil
+        let running = lock.withLock { () -> [Channel] in
+            let current = channels
+            channels = []
             return current
         }
-        guard let running else { return }
-        try? await running.close()
+        guard !running.isEmpty else { return }
+        for channel in running { try? await channel.close() }
         log.info("local server stopped")
     }
 
@@ -122,16 +162,33 @@ final class LocalServer: @unchecked Sendable {
 
 // MARK: - ビューアページの配信
 
-/// `/` にビューアの単一 HTML を返すだけのハンドラ。それ以外は 404。
+/// HTTPS 側のポートは、待ち受けを始めるまで分からない。
+/// 両方のリスナのハンドラが参照時に読めるよう、ここに置く。
+private final class ResolvedPorts: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _securePort: Int?
+
+    var securePort: Int? {
+        get { lock.withLock { _securePort } }
+        set { lock.withLock { _securePort = newValue } }
+    }
+}
+
+/// `/` にビューアの単一 HTML、`/config` に HTTPS 側のポートを返す。それ以外は 404。
+///
+/// HTTPS の URL を HTML へ埋め込む案は採らない。ホストが成果物を書き換えることになり、
+/// 「ビルド済みの 1 ファイルしか知らない」という前提が崩れる（docs/STACK.md §6.1）。
 private final class ViewerPageHandler: ChannelInboundHandler, RemovableChannelHandler {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
     private let html: ByteBuffer
+    private let ports: ResolvedPorts
     private var head: HTTPRequestHead?
 
-    init(html: ByteBuffer) {
+    init(html: ByteBuffer, ports: ResolvedPorts) {
         self.html = html
+        self.ports = ports
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -149,17 +206,32 @@ private final class ViewerPageHandler: ChannelInboundHandler, RemovableChannelHa
 
     private func respond(to head: HTTPRequestHead, context: ChannelHandlerContext) {
         let path = head.uri.split(separator: "?", maxSplits: 1).first.map(String.init) ?? head.uri
-        let serving = head.method == .GET && (path == "/" || path == "/index.html")
 
         var headers = HTTPHeaders()
         // HSTS は送らない。送ると HTTP 経路が恒久的に死ぬ（SPEC.md §5.3）
         headers.add(name: "Cache-Control", value: "no-store")
 
-        let body = serving ? html : ByteBuffer(string: "not found")
-        headers.add(name: "Content-Type", value: serving ? "text/html; charset=utf-8" : "text/plain; charset=utf-8")
-        headers.add(name: "Content-Length", value: String(body.readableBytes))
+        let status: HTTPResponseStatus
+        let body: ByteBuffer
+        let contentType: String
 
-        let status: HTTPResponseStatus = serving ? .ok : .notFound
+        switch (head.method, path) {
+        case (.GET, "/"), (.GET, "/index.html"):
+            status = .ok
+            body = html
+            contentType = "text/html; charset=utf-8"
+        case (.GET, "/config"):
+            status = .ok
+            body = ByteBuffer(string: #"{"securePort":\#(ports.securePort.map(String.init) ?? "null")}"#)
+            contentType = "application/json; charset=utf-8"
+        default:
+            status = .notFound
+            body = ByteBuffer(string: "not found")
+            contentType = "text/plain; charset=utf-8"
+        }
+
+        headers.add(name: "Content-Type", value: contentType)
+        headers.add(name: "Content-Length", value: String(body.readableBytes))
         context.write(wrapOutboundOut(.head(HTTPResponseHead(version: head.version, status: status, headers: headers))), promise: nil)
         context.write(wrapOutboundOut(.body(.byteBuffer(body))), promise: nil)
 

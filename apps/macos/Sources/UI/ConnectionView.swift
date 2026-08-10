@@ -22,35 +22,50 @@ struct ConnectionView: View {
             } else {
                 // インタフェースが複数ある場合は選べるように全件出す（SPEC.md §5.2）
                 ForEach(session.endpoints) { endpoint in
-                    HStack(spacing: 8) {
-                        Text(endpoint.interfaceName)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .frame(width: 56, alignment: .leading)
-
-                        Text(endpoint.url)
-                            .font(.body.monospaced())
-                            .textSelection(.enabled)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-
-                        Button {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(endpoint.url, forType: .string)
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("URL をコピー")
-
-                        Spacer(minLength: 0)
+                    // 既定は HTTP。証明書の警告が出ない（SPEC.md §5.3）
+                    row(interfaceName: endpoint.interfaceName, url: endpoint.url)
+                    if let secureURL = endpoint.secureURL {
+                        row(interfaceName: "", url: secureURL)
                     }
                 }
+            }
+
+            if let certificateError = session.certificateError {
+                Text("HTTPS は使えません: \(certificateError)")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
             }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quinary)
+    }
+
+    private func row(interfaceName: String, url: String) -> some View {
+        HStack(spacing: 8) {
+            Text(interfaceName)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .frame(width: 56, alignment: .leading)
+
+            Text(url)
+                .font(.body.monospaced())
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(url, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.borderless)
+            .help("URL をコピー")
+
+            Spacer(minLength: 0)
+        }
     }
 
     @ViewBuilder

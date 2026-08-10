@@ -51,7 +51,12 @@ pc.ontrack = (e) => {
 ```
 
 - 自己診断（SPEC.md §5.3）は `typeof RTCPeerConnection === "undefined"` の判定と、接続確立の 5 秒タイムアウトの 2 段構え。
-- 遅延オーバーレイは `pc.getStats()` の `jitterBufferDelay` / `totalDecodeTime` / `framesDropped` / RTT と、`video.requestVideoFrameCallback()` の `expectedDisplayTime` から作る。
+  **HTTPS のポートはホストの `/config` に尋ねる。** 待受を始めるまで決まらず、HTML へ埋め込ませると
+  ホストが成果物を書き換えることになって「ビルド済みの 1 ファイルしか知らない」前提が崩れる（§6.1）。
+- 遅延オーバーレイは `pc.getStats()` の `jitterBufferDelay` / `totalDecodeTime` / `framesDropped` / RTT から作る
+  （`src/latency.ts`）。**累積値なので、`jitterBufferEmittedCount` や `framesDecoded` で割って 1 フレームあたりに直す。**
+  fps とビットレートは前回の観測との差分。読み出しは純粋関数に切り出して Vitest で確認する。
+  RTT は `nominated` / `succeeded` の候補ペアだけを見る（落選した候補の値は意味がない）。
 - ズームは CSS `transform` を使うが、**ズーム倍率 1.0 のときは `transform` を DOM から完全に外す**。合成レイヤが増えると表示遅延が乗る。
 
 ### 1.3 開発ループ
@@ -161,18 +166,40 @@ SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載
 - **`ChannelHandlerContext` はイベントループに閉じており、クロージャへ持ち出せない。** 後で閉じたい場合は
   `Sendable` な `Channel` を捕まえておく。
 
-証明書:
+証明書（`TLSIdentity`）:
 
 ```
-起動時:
-  Keychain に既存の SecIdentity があるか（ラベル "net.sharkpp.doppelscreen.tls"）
-    ある & SAN が現在の IP を含む → それを使う
-    ない or IP が変わった        → swift-certificates で生成 → Keychain へ保存
+待受の開始時:
+  Keychain の証明書を全件読み、OU が "net.sharkpp.doppelscreen.tls" のものを探す
+    ある & SAN が現在の IP を覆う → SecIdentityCreateWithCertificate で識別情報にする
+    ない or IP が増えている       → swift-certificates で生成 → Keychain へ保存
 ```
 
 - 秘密鍵は Keychain、証明書も Keychain（`SecIdentity` として取り出せる形）に置く。Application Support に平文で置かない。
-- **SAN に全ての LAN IP を入れる。** `getifaddrs` で列挙する。
+- **SAN に全ての LAN IP と `127.0.0.1` を入れる。** `getifaddrs` で列挙する。ループバックは E2E と手元確認に要る。
+- 古い IP が余分に残っているだけなら作り直さない。**ビューア端末が受け入れた証明書例外を無駄に無効化しない**ため。
 - **HSTS ヘッダを送らない**（SPEC.md §5.3）。
+- 証明書が用意できなくても HTTP だけで待ち受けを続ける。**HTTPS が立たないことを配信不能にしない。**
+
+#### キーチェーンの落とし穴（実害が出た）
+
+> **`SecItemCopyMatching` / `SecItemDelete` に `kSecClassIdentity` + `kSecAttrLabel` を渡してはいけない。**
+> macOS の（レガシー）キーチェーンではこの絞り込みが効かず、**ラベルが一致しない他の識別情報を掴む**。
+> 実装当初これをやった結果、`SecItemCopyMatching` が開発用の署名証明書「DoppelScreen Development」を
+> 返し、SAN が合わないので作り直すべきと判断して `SecItemDelete` で**消してしまった**。
+> 署名 ID が消えるとビルドが通らなくなり、作り直すと TCC から別アプリになって画面収録の許可もやり直しになる。
+
+対処（実装済み）:
+
+- **探すときは属性に頼らない。** 証明書を全件読み（`kSecMatchLimitAll`）、DER をパースして
+  **中身**（OU = `net.sharkpp.doppelscreen.tls`）で自分のものだと判定する。
+- **消すときは参照そのものを指す。** `kSecMatchItemList` に `SecCertificate` / `SecKey` の参照を渡す。
+  属性で消すと、キーチェーンが属性を無視した場合に無関係な項目まで巻き込む。
+- `SecIdentity` は `SecIdentityCreateWithCertificate` で証明書から作る。identity クラスへの問い合わせを避けられる。
+- PKCS#12 は組み立てない。**秘密鍵と証明書をそれぞれ入れれば、キーチェーンが公開鍵ハッシュで結び付けてくれる。**
+  `security import` 系で踏む「空パスワード不可」「OpenSSL 3 既定の暗号化を受け付けない」（§2.5）を回避できる。
+- EC の秘密鍵を `SecKeyCreateWithData` へ渡すときは **ANSI X9.63 形式**（`04 || X || Y || K`）。
+  swift-crypto の `P256.Signing.PrivateKey.x963Representation` がそのまま使える。
 
 ### 2.5 権限とネットワーク
 
