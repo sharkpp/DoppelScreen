@@ -22,6 +22,8 @@ enum SelfTest {
         var duration: Duration = .seconds(3)
         /// キャプチャを WebRTC のループバックまで通すか（docs/STACK.md §2.8 ステップ 4）
         var loopback: Bool = false
+        /// 実際の配信経路を立ち上げてビューアの接続を待つか（docs/STACK.md §2.10）
+        var serve: Bool = false
         var outputDirectory: URL = FileManager.default.temporaryDirectory
             .appending(path: "doppelscreen-selftest", directoryHint: .isDirectory)
 
@@ -29,7 +31,7 @@ enum SelfTest {
             arguments.contains(flag)
         }
 
-        /// `--selftest [--display <id>] [--duration <秒>] [--output <ディレクトリ>] [--loopback]`
+        /// `--selftest [--display <id>] [--duration <秒>] [--output <ディレクトリ>] [--loopback] [--serve]`
         init(arguments: [String]) throws {
             var iterator = arguments.dropFirst().makeIterator()
             while let argument = iterator.next() {
@@ -38,6 +40,8 @@ enum SelfTest {
                     continue
                 case "--loopback":
                     loopback = true
+                case "--serve":
+                    serve = true
                 case "--display":
                     guard let value = iterator.next(), let id = UInt32(value) else {
                         throw Failure("--display にはディスプレイ ID を指定してください")
@@ -125,6 +129,7 @@ enum SelfTest {
         var displays: [Display] = []
         var capture: Capture?
         var loopback: Loopback?
+        var serve: ServeReport?
         var error: String?
     }
 
@@ -143,7 +148,7 @@ enum SelfTest {
 
         // ストリームが開かないまま待ち続けると、レポートを待つ側が返らなくなる
         let watchdog = Task {
-            try? await Task.sleep(for: options.duration + .seconds(options.loopback ? 45 : 15))
+            try? await Task.sleep(for: options.duration + .seconds(options.loopback ? 45 : 30))
             emit(
                 Report(permissionGranted: ScreenRecordingPermission.isGranted, error: "タイムアウトしました"),
                 to: options.outputDirectory
@@ -152,7 +157,7 @@ enum SelfTest {
         }
 
         Task {
-            let report = await perform(options)
+            let report = options.serve ? await performServe(options) : await perform(options)
             watchdog.cancel()
             emit(report, to: options.outputDirectory)
             exit(report.ok ? 0 : 1)

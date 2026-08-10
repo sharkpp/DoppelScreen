@@ -34,6 +34,12 @@ struct MainView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(.black)
 
+            // 配信していない間は接続先を出さない（開いていないサーバの URL を見せない）
+            if session.captureState == .running {
+                Divider()
+                ConnectionView(session: session)
+            }
+
             controlBar
         }
     }

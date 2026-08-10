@@ -2,6 +2,7 @@ import AppKit
 import CoreGraphics
 import Foundation
 import Observation
+import WebRTC
 
 /// アプリ全体の状態機械（SPEC.md §2.3）。
 /// M0 の時点ではキャプチャのライフサイクルと権限状態のみを持つ。
@@ -20,15 +21,40 @@ final class SessionController {
         case failed(String)
     }
 
+    /// ビューア 1 本ぶんの状態。1 ホスト : 1 ビューア（SPEC.md §1.3）
+    enum ViewerState: Equatable {
+        case none
+        case negotiating(String)
+        case streaming(String)
+        case failed(String)
+    }
+
+    /// ビューアに渡す接続先。インタフェースが複数あるとき用に全件持つ（SPEC.md §5.2）
+    struct Endpoint: Identifiable, Equatable {
+        var interfaceName: String
+        var url: String
+        var id: String { url }
+    }
+
     private(set) var permissionGranted: Bool = ScreenRecordingPermission.isGranted
     private(set) var hasRequestedPermissionBefore: Bool = ScreenRecordingPermission.hasRequestedBefore
     private(set) var displays: [DisplayInfo] = []
     private(set) var selectedDisplayID: CGDirectDisplayID?
     private(set) var captureState: CaptureState = .idle
     private(set) var statistics = ScreenCapturer.Statistics()
+    private(set) var endpoints: [Endpoint] = []
+    /// 実際に確保できたポート。希望の 8422 が埋まっていればずれる
+    private(set) var serverPort: Int?
+    private(set) var viewerState: ViewerState = .none
 
     let capturer = ScreenCapturer()
     let previewRenderer = PreviewRenderer()
+    /// M0 では起動ごとに固定。TTL と再生成は M2（SPEC.md §5.2）
+    let token = PairingToken.generate()
+
+    private let pipeline = VideoPipeline(factory: VideoPipeline.makeFactory())
+    private let server = LocalServer()
+    private var transport: PeerTransport?
 
     /// 実際に動いているストリームの構成。UI の選択と食い違ったら追従させる
     private var activeConfiguration: ScreenCapturer.Configuration?
@@ -41,9 +67,10 @@ final class SessionController {
     }
 
     init() {
-        // フレームはキャプチャ用キューからプレビューへ直接流す。MainActor を経由させない
-        capturer.setFrameHandler { [previewRenderer] sampleBuffer in
+        // フレームはキャプチャ用キューからプレビューと WebRTC へ直接流す。MainActor を経由させない
+        capturer.setFrameHandler { [previewRenderer, pipeline] sampleBuffer in
             previewRenderer.enqueue(sampleBuffer)
+            pipeline.capture(sampleBuffer)
         }
         capturer.setStopHandler { [weak self] error in
             // Error を跨がせず、表示に使う文字列だけを運ぶ
@@ -153,22 +180,97 @@ final class SessionController {
         captureState = .starting
         do {
             try await capturer.start(configuration)
+            try await startServerIfNeeded()
             activeConfiguration = configuration
             captureState = .running
             startStatisticsPolling()
         } catch {
             activeConfiguration = nil
             stopStatisticsPolling()
+            await performStop()
             captureState = .failed(error.localizedDescription)
         }
     }
 
     private func performStop() async {
         stopStatisticsPolling()
+        disconnectViewer()
+        await server.stop()
+        endpoints = []
+        serverPort = nil
         await capturer.stop()
         activeConfiguration = nil
         captureState = .idle
         statistics = ScreenCapturer.Statistics()
+    }
+
+    // MARK: - 配信
+
+    /// キャプチャが動いている間だけ待ち受ける。映すものが無い状態でビューアを受け入れない。
+    /// ディスプレイの再構成では貼り直しが走るため、既に待受中なら何もしない。
+    private func startServerIfNeeded() async throws {
+        guard serverPort == nil else { return }
+
+        let port = try await server.start(.init(token: token)) { [weak self] connection in
+            Task { @MainActor in self?.acceptViewer(connection) }
+        }
+        serverPort = port
+        endpoints = NetworkInterfaces.lanAddresses().map {
+            Endpoint(interfaceName: $0.name, url: "http://\($0.address):\(port)/#\(token)")
+        }
+    }
+
+    /// 1 ホスト : 1 ビューア。後から来たものを採り、古い方を切る
+    /// （ビューアのリロード時に、閉じ切っていない古い接続で塞がるのを避ける）。
+    private func acceptViewer(_ connection: SignalingConnection) {
+        transport?.close()
+        transport = nil
+
+        do {
+            let transport = try PeerTransport(
+                factory: pipeline.factory,
+                connection: connection
+            ) { [weak self] id, state in
+                Task { @MainActor in self?.updateViewerState(state, from: id) }
+            }
+            self.transport = transport
+            Task {
+                do {
+                    try await transport.start(track: pipeline.track)
+                } catch {
+                    updateViewerState(.closed(error.localizedDescription), from: transport.id)
+                }
+            }
+        } catch {
+            viewerState = .failed(error.localizedDescription)
+            connection.close()
+        }
+    }
+
+    /// 既に切った接続からの通知は捨てる。古い「切断しました」で新しい接続を塗り潰さない
+    private func updateViewerState(_ state: PeerTransport.State, from id: UUID) {
+        guard let transport, transport.id == id else { return }
+
+        switch state {
+        case .negotiating:
+            viewerState = .negotiating(transport.remoteDescription)
+        case .streaming:
+            viewerState = .streaming(transport.remoteDescription)
+        case .closed(let reason):
+            self.transport = nil
+            viewerState = .failed(reason)
+        }
+    }
+
+    func disconnectViewer() {
+        transport?.close()
+        transport = nil
+        viewerState = .none
+    }
+
+    /// 送出側の実測。接続していなければ `nil`
+    func streamStatistics() async -> PeerTransport.Statistics? {
+        await transport?.statistics()
     }
 
     /// ストリームが自発的に落ちたときの後始末。構成が変わっている可能性が高いので一覧も取り直す。

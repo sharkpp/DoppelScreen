@@ -19,6 +19,17 @@ packages:
   WebRTC:
     url: https://github.com/stasel/WebRTC
     exactVersion: 151.0.0
+  # ビューアページの配信とシグナリング（docs/STACK.md §2.4）。
+  # HTTP と WebSocket アップグレードを 1 ポートで扱える。
+  # 版は明示的な判断として扱う。生成物である .xcodeproj ごと Package.resolved が
+  # gitignore されるため、固定はここで行う（docs/STACK.md §6.2）
+  SwiftNIO:
+    url: https://github.com/apple/swift-nio
+    exactVersion: 2.101.3
+  # TLS は Network.framework 経由で使う。BoringSSL を抱え込まない
+  SwiftNIOTransportServices:
+    url: https://github.com/apple/swift-nio-transport-services
+    exactVersion: 1.28.0
 
 targets:
   DoppelScreen:
@@ -28,6 +39,14 @@ targets:
       - path: Sources
     dependencies:
       - package: WebRTC
+      - package: SwiftNIO
+        product: NIOCore
+      - package: SwiftNIO
+        product: NIOHTTP1
+      - package: SwiftNIO
+        product: NIOWebSocket
+      - package: SwiftNIOTransportServices
+        product: NIOTransportServices
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.sharkpp.doppelscreen
@@ -52,6 +71,11 @@ targets:
           ENABLE_HARDENED_RUNTIME: NO
         Release:
           ENABLE_HARDENED_RUNTIME: YES
+    # ビューアはコード署名の前に置く必要があるため、全ビルドフェーズの後に走らせる
+    postBuildScripts:
+      - name: ビューアをビルドしてバンドルへ入れる
+        basedOnDependencyAnalysis: false
+        script: '"$PROJECT_DIR"/scripts/build-viewer.sh'
     info:
       path: Sources/Info.plist
       properties:

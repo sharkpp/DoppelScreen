@@ -1,8 +1,9 @@
-.PHONY: macos-dev-certificate macos-generate macos-build macos-run macos-selftest macos-clean macos-reset-permission
+.PHONY: macos-dev-certificate macos-generate macos-build macos-run macos-selftest macos-serve macos-clean macos-reset-permission web-install web-build web-test e2e
 
 BUNDLE_ID := net.sharkpp.doppelscreen
 
 MACOS_DIR := apps/macos
+WEB_DIR := apps/web
 MACOS_BUILD := $(MACOS_DIR)/build
 MACOS_APP := $(MACOS_BUILD)/Build/Products/Debug/DoppelScreen.app
 
@@ -46,6 +47,34 @@ macos-selftest: macos-build
 	@cat $(SELFTEST_DIR)/report.json
 	@grep -q '"ok"[[:space:]]*:[[:space:]]*true' $(SELFTEST_DIR)/report.json
 
+# 実際の配信経路（キャプチャ → LocalServer → PeerTransport）を立ち上げ、
+# ビューアの接続を待つ。接続先は build/selftest/serve.json に出る。
+# 例: make macos-serve SELFTEST_ARGS="--duration 120"
+macos-serve: macos-build
+	@rm -rf $(SELFTEST_DIR)
+	@mkdir -p $(SELFTEST_DIR)
+	@open -n -a "$(abspath $(MACOS_APP))" --args --selftest --serve --output "$(abspath $(SELFTEST_DIR))" $(SELFTEST_ARGS)
+	@count=0; until [ -f $(SELFTEST_DIR)/serve.json ]; do \
+		count=$$((count + 1)); \
+		if [ $$count -gt 30 ]; then echo "待受が始まりません"; exit 1; fi; \
+		sleep 1; \
+	done
+	@cat $(SELFTEST_DIR)/serve.json
+
+web-install:
+	npm --prefix $(WEB_DIR) install
+
+web-build:
+	npm --prefix $(WEB_DIR) run build
+
+web-test:
+	npm --prefix $(WEB_DIR) run test
+
+# ホストを起動して実 Chrome から繋ぎ、映像が出るところまでを通しで確認する。
+# Playwright 同梱の Chromium は H.264 を持たないため、実 Chrome を使う。
+e2e: macos-build
+	npm --prefix $(WEB_DIR) run e2e
+
 # 開発ビルドは ad-hoc 署名のため、リビルドのたびに TCC から別アプリとして扱われる。
 # 許可が効かなくなったらこれで記録を消し、起動しなおして許可し直す。
 macos-reset-permission:
@@ -54,4 +83,4 @@ macos-reset-permission:
 	@echo "画面収録の許可をリセットしました。make macos-run で起動して許可し直してください。"
 
 macos-clean:
-	rm -rf $(MACOS_BUILD) $(MACOS_DIR)/DoppelScreen.xcodeproj
+	rm -rf $(MACOS_BUILD) $(MACOS_DIR)/DoppelScreen.xcodeproj $(WEB_DIR)/dist

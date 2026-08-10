@@ -163,7 +163,7 @@ final class WebRTCLoopback: @unchecked Sendable {
 
     func result() async -> Result {
         var result = Result()
-        result.iceConnectionState = Self.describe(receiver.iceConnectionState)
+        result.iceConnectionState = receiver.iceConnectionState.label
         result.renderedFrames = collector.count
 
         for statistics in await sender.statistics().statistics.values {
@@ -200,52 +200,6 @@ final class WebRTCLoopback: @unchecked Sendable {
         sender.close()
         receiver.close()
     }
-
-    private static func describe(_ state: RTCIceConnectionState) -> String {
-        switch state {
-        case .new: "new"
-        case .checking: "checking"
-        case .connected: "connected"
-        case .completed: "completed"
-        case .failed: "failed"
-        case .disconnected: "disconnected"
-        case .closed: "closed"
-        case .count: "count"
-        @unknown default: "unknown"
-        }
-    }
-}
-
-// MARK: - ICE candidate の中継
-
-/// リモート記述が入る前に届いた candidate は捨てられる。宛先が決まるまで溜めておく。
-private final class CandidateRelay: @unchecked Sendable {
-    private let lock = NSLock()
-    private var pending: [RTCIceCandidate] = []
-    private var target: RTCPeerConnection?
-
-    func attach(_ peer: RTCPeerConnection) {
-        let flushed = lock.withLock { () -> [RTCIceCandidate] in
-            target = peer
-            let queued = pending
-            pending.removeAll()
-            return queued
-        }
-        for candidate in flushed {
-            peer.add(candidate) { _ in }
-        }
-    }
-
-    func send(_ candidate: RTCIceCandidate) {
-        let peer = lock.withLock { () -> RTCPeerConnection? in
-            guard let target else {
-                pending.append(candidate)
-                return nil
-            }
-            return target
-        }
-        peer?.add(candidate) { _ in }
-    }
 }
 
 // MARK: - デコード済みフレームの受け口
@@ -268,33 +222,4 @@ private final class FrameCollector: NSObject, RTCVideoRenderer, @unchecked Senda
             received += 1
         }
     }
-}
-
-// MARK: - PeerConnection の監視
-
-/// 必須メソッドが多いため、必要なものだけクロージャで外に出す。
-private final class PeerObserver: NSObject, RTCPeerConnectionDelegate, @unchecked Sendable {
-    var name = "peer"
-    var onCandidate: ((RTCIceCandidate) -> Void)?
-    var onIceConnectionState: ((RTCIceConnectionState) -> Void)?
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        log.info("\(self.name, privacy: .public) candidate: \(candidate.sdp, privacy: .public)")
-        onCandidate?(candidate)
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
-        log.info("\(self.name, privacy: .public) ice: \(newState.rawValue, privacy: .public)")
-        onIceConnectionState?(newState)
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
-    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
-    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
-    func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
-        log.info("\(self.name, privacy: .public) gathering: \(newState.rawValue, privacy: .public)")
-    }
-    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
-    func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 }

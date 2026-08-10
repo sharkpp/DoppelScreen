@@ -12,5 +12,10 @@ xcuserdata/
 node_modules/
 dist/
 
+# Playwright
+test-results/
+playwright-report/
+.playwright/
+
 # macOS
 .DS_Store

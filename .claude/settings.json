@@ -24,7 +24,9 @@
       "Edit",
       "Write",
       "Glob",
-      "Grep"
+      "Grep",
+      "Bash(make web-test *)",
+      "Bash(make e2e *)"
     ],
     "deny": [
       "Bash(rm -rf /)",

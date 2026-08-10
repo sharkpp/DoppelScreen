@@ -59,7 +59,22 @@ pc.ontrack = (e) => {
 ホストアプリを毎回ビルドし直さずにビューアを触れるようにする。
 
 - 開発時: `vite dev`（:5173）で開き、ホストの WS URL をクエリパラメータで渡す（`?host=192.168.1.10:8422`）。
-- 本番: `vite build` → 単一 HTML をホストアプリのバンドルへコピー。
+- 本番: `vite build` → 単一 HTML をホストアプリのバンドルへコピー。macOS では XcodeGen の
+  `postBuildScripts`（`apps/macos/scripts/build-viewer.sh`）が `npm run build` を叩き、
+  `viewer.html` としてバンドルへ入れる。**コード署名より前に置く必要があるため、全ビルドフェーズの後に走らせる。**
+
+### 1.4 E2E（`make e2e`）
+
+Playwright でホストアプリを起動し、実ブラウザから繋いで映像が出るところまでを通しで確認する
+（`apps/web/e2e/`）。ホストは検証モード（§2.10）で立ち上げるので、UI 操作はいらない。
+
+- **`channel: "chrome"` を使う。Playwright 同梱の Chromium ではだめ。** 同梱ビルドはプロプライエタリ
+  コーデックを含まず **H.264 をデコードできない**。接続はできるのに映像だけ出ない、という分かりにくい
+  失敗になる（本製品は H.264 固定 — SPEC.md §2.5）。
+- ビューア側は `videoWidth` と再生位置で、ホスト側は `report.json` の `framesSent` で判定する。
+  **両側から見て突き合わせる**ことで、「送ったつもり」「映ったつもり」を潰す。
+- 接続先は `127.0.0.1` を使う。LAN アドレスでも通るが、macOS 15 のローカルネットワーク許諾を
+  巻き込まない分こちらが安定する。
 
 ---
 
@@ -127,6 +142,24 @@ SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載
 - HTTP リスナ（:8422）と HTTPS リスナ（:8423）を同じハンドラで 2 本立てる。
 - TLS は `NIOTSListenerBootstrap` + `NWProtocolTLS`。`SecIdentity` を渡す。
 - 返すのは `Bundle.main` に入っている単一 HTML 1 つと、`/signal` の WebSocket のみ。ルーティングは実質 2 分岐。
+- 希望のポートが埋まっていたら空きポートへずらし、**実際に確保できたポートを URL / QR に反映する**（SPEC.md §5.3）。
+
+**トークンは WebSocket の最初の 1 通（`hello`）で運ぶ。** SPEC.md §5.1 の図は `Authorization` ヘッダだが、
+ブラウザの `WebSocket` はヘッダを付けられない。クエリパラメータに置くとアクセスログや履歴に残り、
+トークンを URL fragment に置いた意味が消える。認証は `LocalServer` が済ませ、`SessionController` には
+**通ったものだけを渡す**。
+
+実装上の落とし穴（すべて対処済み）:
+
+- **WebSocket へ昇格したときに外れるのは、NIO が入れた HTTP のハンドラだけ。** 自前のページ配信ハンドラは
+  パイプラインに残り、`WebSocketFrame` を `HTTPServerRequestPart` として取り出そうとして**プロセスごと落ちる**。
+  症状は「アップグレードは成功するのに直後に 1006 で切れる」。昇格時の `completionHandler` で自分で外す。
+- **ハンドラの参照は `@Sendable` なクロージャへ持ち込めない**（`ChannelHandler` は `Sendable` でない）。
+  名前を付けて登録し、`removeHandler(name:)` で外す。
+- **切断の理由を送ってから閉じるときは、必ず `ChannelHandlerContext` 経由で書く。** `Channel.writeAndFlush` は
+  パイプラインの末尾から入るため `close` が先着し、**理由が届かないまま切れる**。
+- **`ChannelHandlerContext` はイベントループに閉じており、クロージャへ持ち出せない。** 後で閉じたい場合は
+  `Sendable` な `Channel` を捕まえておく。
 
 証明書:
 
@@ -228,6 +261,31 @@ UI を出さずに、権限判定 → ディスプレイ列挙 → 指定秒キ�
 - **macOS 15 のローカルネットワーク許可が下りるまで ICE は checking のまま進まない。** candidate の収集（インタフェース列挙）は成功するので、症状が「接続だけしない」となり原因が分かりにくい。`candidate-pair` の `requestsSent` / `responsesReceived` を見れば「送れていない」のか「返ってこない」のかを切り分けられる。
 
 実測（メインディスプレイ 2880×1800、3 秒）: エンコード 185 / デコード 184 / 描画 184、コーデックは `video/H264`。**ただしデコード解像度は 960×600 に落ちる。** 立ち上がり時の帯域推定によるダウンスケールで、解像度追従（SPEC.md §7.1）とビットレート設定は M1 / M2 で扱う。
+
+### 2.10 配信の検証（`--serve`）
+
+`--selftest --serve` で、UI を出さずに実際の配信経路（キャプチャ → `LocalServer` → `PeerTransport`）を
+立ち上げ、ビューアの接続を待つ。
+
+```
+make macos-serve                                  # 接続先を表示して待つ
+make macos-serve SELFTEST_ARGS="--duration 120"
+make e2e                                          # Playwright から自動で繋ぐ（§1.4）
+```
+
+**`SessionController` をそのまま駆動するため、製品と同じ経路を検証する。** キャプチャ側の検証（§2.7）が
+`ScreenCapturer` を直接叩くのと対照的で、こちらは配線ごと確認する。
+
+- 待受を開始した時点で `serve.json`（ポート・トークン・URL）を書く。E2E 側はこれを合図にブラウザを開く。
+  終了時の `report.json` には `framesSent` / `codec` / `candidatePairs` が入る。
+- 実測（メインディスプレイ 2880×1800、Chrome へ 8 秒）: **送出 180 フレーム / 受信 181 フレーム、`video/H264`、
+  ICE は `succeeded sent=5 received=5`。** ただし解像度は 960×600 に落ちる（§2.9 のループバックと同じく
+  立ち上がりの帯域推定によるもの。解像度追従は M1 / M2）。
+
+実装上の落とし穴（対処済み）:
+
+- **`startCapture()` は直列キューへ積むだけで、戻った時点ではまだ `.idle`。** 「`.starting` ではない」で
+  待つと積む前の状態を拾って素通りする。`.running` / `.failed` で待つ。
 
 ---
 
