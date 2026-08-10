@@ -131,14 +131,66 @@ func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of typ
 | `showsCursor` | `true` | 焼き込み。操作しないので別送不要 |
 | `width` / `height` | ビューアの `viewport` に追従 | SPEC.md §7.1 |
 
-### 2.3 エンコーダ設定について
+### 2.3 エンコーダ設定（M1 で確定）
 
-libwebrtc の VideoToolbox H.264 エンコーダは、**内部で `kVTCompressionPropertyKey_RealTime = true` と `AllowFrameReordering = false` を設定していると見られる**（＝ B フレームは既に無効）。したがって「B フレーム無効化」のために独自実装を書く前に、**まず実測する**。必要になった場合のみ `RTCVideoEncoderFactory` を差し替える。
+#### libwebrtc 既定のエンコーダファクトリは使えない
 
-先に手を入れるべきは以下（libwebrtc の外側で制御できる）:
-- `RTCRtpEncodingParameters.maxBitrateBps` / `maxFramerate`（品質プリセット）
-- `RTCRtpTransceiver` の `degradationPreference`
-- ビデオトラックの `contentHint`
+> **`RTCDefaultVideoEncoderFactory` は H.264 を level 3.1（`640c1f` / `42e01f`）として広告する。
+> VideoToolbox は level の制限（最大フレームサイズ・最大ビットレート）を実際に強制するため、
+> 1080p 以上や 40Mbps 上限では圧縮セッションが 1 枚も出力しない。**
+
+実測（macOS 15.5 / Apple Silicon、`RTCVideoEncoderH264` を直接叩いて確認。上限 40Mbps）:
+
+| 解像度 | level 3.0–3.2 | 4.0–4.2 | 5.0 以上 |
+| --- | --- | --- | --- |
+| 1920×1080（8160MB） | ✗ | ✓ | ✓ |
+| 2880×1800（20340MB） | ✗ | ✗ | ✓ |
+
+**症状が非常に分かりにくい。** libwebrtc は encode 失敗をコーデックの切り替えで隠すため、
+`framesEncoded` は伸び続け、映像も出る。実際に流れているのは **VP8 のソフトウェア符号化**で、
+ビューア側もハードウェアデコードできない。M0 の「コーデックは H.264」という実測は誤りだった
+（下記の統計の読み違いも重なっていた）。
+
+対処は `H264EncoderFactory`（`Sources/Video/VideoEncoderFactory.swift`）:
+
+- **level 5.2 を広告する**（4K60 と 240Mbps を覆う）
+- **ネゴシエートされた level を無視して符号化する。** level は answer で下げられる
+  （Chrome も libwebrtc も 3.1 を返す）。`level-asymmetry-allowed=1` により送出側は自分の
+  level を使ってよく、復号側が見るのは SDP ではなくビットストリーム中の SPS
+- **H.264 以外を広告しない。** 失敗が静かなコーデック切り替えに化けず、そのまま表面化する
+- level 5.2 を超える解像度（5K 以上のディスプレイ）は `VideoEncoding.encodableSize` で
+  縮小してから渡す。縮小は `SCStream` 側で行われ、CPU 側のコピーは増えない
+
+**`encoderImplementation` の統計を必ず見ること。** `VideoToolbox` 以外ならソフトウェアに落ちている。
+
+#### 統計から「実際に使っているコーデック」を読む
+
+`codec` の統計は**ネゴシエートされた全コーデックぶん**現れる。種別だけで拾うと使っていない
+ものを掴む（実際に H.264 で流れているのに VP8 と報告された）。`inbound-rtp` / `outbound-rtp` の
+`codecId` から引く（`RTCStatisticsReport.mimeType(of:)`）。
+
+#### B フレームと GOP は既定で正しい
+
+`WebRTC.framework` の未定義シンボルを見ると、`kVTCompressionPropertyKey_AllowFrameReordering`
+`_RealTime` `_MaxKeyFrameInterval` をいずれも参照している（`nm -u`）。実測でも 15 秒で
+`keyFramesEncoded` は 1–2 に留まり、**長 GOP + PLI が既定で効いている**。ここは触らない
+（SPEC.md §3.2 のレバー 2 と 4 は追加実装不要）。
+
+#### libwebrtc の外側で当てる設定（`VideoEncoding`）
+
+- `RTCPeerConnection.setBweMinBitrateBps(min:current:max:)` — **これが解像度低下の本命**。
+  `current` は帯域推定を**その場で強制する**ため、立ち上がりのランプアップ（300kbps 級）と
+  それに伴うダウンスケールが消える
+- `RTCRtpEncodingParameters` の `maxBitrateBps` / `minBitrateBps` / `maxFramerate` /
+  `scaleResolutionDownBy = 1`
+- `degradationPreference = maintainResolution` — 足りなくなったら解像度ではなく fps を落とす。
+  ぼけた 60fps より鮮明な 30fps の方が役に立つ（SPEC.md §7.2）
+- **適用はローカル記述を入れた後。** それより前は送出側のパラメータが確定していない
+- ビデオトラックの `contentHint` は **obj-c API に無い**（`RTCVideoTrack` は
+  `addRenderer` / `removeRenderer` しか持たない）。品質プリセット（M2）は上記の値で表現する
+
+映像は `addTransceiver(direction: .sendOnly)` で張る。転送専用であることを SDP に明記し
+（SPEC.md §1.2）、送出できないコーデックがネゴシエートされる余地も消える。
 
 ### 2.4 LocalServer
 
@@ -294,7 +346,12 @@ UI を出さずに、権限判定 → ディスプレイ列挙 → 指定秒キ�
 - **hardened runtime のライブラリ検証は本体と同じ Team ID を要求する。** 自己署名では `WebRTC.framework` を読み込めず起動時にクラッシュするため、Debug では無効にする（§2.5）。
 - **macOS 15 のローカルネットワーク許可が下りるまで ICE は checking のまま進まない。** candidate の収集（インタフェース列挙）は成功するので、症状が「接続だけしない」となり原因が分かりにくい。`candidate-pair` の `requestsSent` / `responsesReceived` を見れば「送れていない」のか「返ってこない」のかを切り分けられる。
 
-実測（メインディスプレイ 2880×1800、3 秒）: エンコード 185 / デコード 184 / 描画 184、コーデックは `video/H264`。**ただしデコード解像度は 960×600 に落ちる。** 立ち上がり時の帯域推定によるダウンスケールで、解像度追従（SPEC.md §7.1）とビットレート設定は M1 / M2 で扱う。
+実測（メインディスプレイ 2880×1800、5 秒、M1 後）: エンコード 321 / デコード 319 / 描画 319、
+`video/H264`、`encoderImplementation` は `VideoToolbox`、**デコード解像度 2880×1800**。
+
+M0 時点では 960×600 に落ちており、かつ実際には VP8 のソフトウェア符号化だった（§2.3）。
+`decoded.png` が `RTCI420Buffer` で書き出せない場合はソフトウェアデコード＝コーデックの
+切り替えが起きているサイン。
 
 ### 2.10 配信の検証（`--serve`）
 
@@ -311,15 +368,65 @@ make e2e                                          # Playwright から自動で�
 `ScreenCapturer` を直接叩くのと対照的で、こちらは配線ごと確認する。
 
 - 待受を開始した時点で `serve.json`（ポート・トークン・URL）を書く。E2E 側はこれを合図にブラウザを開く。
-  終了時の `report.json` には `framesSent` / `codec` / `candidatePairs` が入る。
-- 実測（メインディスプレイ 2880×1800、Chrome へ 8 秒）: **送出 180 フレーム / 受信 181 フレーム、`video/H264`、
-  ICE は `succeeded sent=5 received=5`。** ただし解像度は 960×600 に落ちる（§2.9 のループバックと同じく
-  立ち上がりの帯域推定によるもの。解像度追従は M1 / M2）。
+  終了時の `report.json` には `framesSent` / `codec` / `encoderImplementation` / `encodeMs` /
+  `keyFramesEncoded` / `qualityLimitationReason` / `candidatePairs` が入る。
+- **`--duration` は「合計の実行時間」。** 繋がってから使い切るまで配信を続ける。
+  接続の 3 秒後に切っていた頃は、手で繋ぐと画面が出た直後に切れていた。
+- 実測（メインディスプレイ 2880×1800、Chrome へ 15 秒、M1 後）: **送出 442 フレーム、`video/H264`、
+  `VideoToolbox`、解像度 2880×1800 のまま、`qualityLimitationReason` は `none`。**
 
 実装上の落とし穴（対処済み）:
 
 - **`startCapture()` は直列キューへ積むだけで、戻った時点ではまだ `.idle`。** 「`.starting` ではない」で
   待つと積む前の状態を拾って素通りする。`.running` / `.failed` で待つ。
+- **HTTPS の待受が「繋がるのに応答しない」場合はキーチェーンの確認ダイアログを疑う。** 証明書の
+  取得（`SecIdentity`）は通るが、TLS ハンドシェイクでの秘密鍵の使用は許可を要求する。
+  ダイアログが未応答のまま残っていると `ERR_TIMED_OUT` / `ERR_CONNECTION_REFUSED` になる。
+  「常に許可」を一度押す。`certificateError` は `nil` のままなので、ログからは分からない。
+
+### 2.11 遅延の実測（M1）
+
+「低遅延」は計測できなければ検証できない（SPEC.md §3.3）。2 段構えで測る。
+
+#### 内訳の自動計測（`make e2e`）
+
+E2E の「遅延の内訳を実測して記録する」が、**ビューア側とホスト側の両方**から統計を読み、
+`apps/macos/build/selftest/latency.json` に残す。リグレッションはここで検出する。
+
+- ビューア側は `getStats()`（`jitterBufferDelay` / `totalDecodeTime` / RTT）を `src/latency.ts` の
+  純粋関数で読む。**`jitterBufferTarget` の実効値は統計に出ないため、`page.addInitScript` で
+  `RTCPeerConnection` を捕まえてレシーバ本体から読む**（0 でなければジッタバッファを捨てられていない）
+- ホスト側は `report.json` の `encodeMs` / `packetSendMs` / `keyFramesEncoded`
+
+実測（2880×1800@60、有線ではなくローカルループバック、Chrome）:
+
+| 区間 | 実測 | バジェット（SPEC.md §3.1） |
+| --- | --- | --- |
+| エンコード | **17.4ms** | 3–8ms |
+| パケット化・送信 | 2.0ms | ~1ms |
+| ネットワーク（RTT） | 1.0ms | 1–5ms |
+| ジッタバッファ | 8.3ms | 0–10ms |
+| デコード | 7.2ms | 3–8ms |
+| 合計（表示を除く） | **約 36ms** | 12–32ms |
+
+**エンコードだけがバジェットを大きく超える。原因は解像度。** 同じ経路を 1824×1140 に落とすと
+エンコードは **9.9ms**、ジッタバッファ 6.5ms、破棄フレームも 14 → 1 に減る。
+2880×1800 は 1080p の 2.5 倍の画素数で、SPEC.md §3.1 のバジェットは 1080p60 前提である。
+
+→ **解像度追従（SPEC.md §7.1、M2）がそのまま最大の遅延削減策になる。** ビューアの表示画素数に
+合わせれば、多くの場合エンコードは 10ms 以下に収まる。M1 では上限（level 5.2）だけを見て、
+既定はディスプレイの実解像度のままとした。
+
+#### glass-to-glass の実測（手動）
+
+カメラが要るため自動化しない。リリースごとに同条件で記録する。
+
+```
+make latency-clock      # ホスト画面にミリ秒カウンタを全画面表示（docs/latency-clock.html）
+```
+
+ホストとビューアを 1 台のカメラで同時に高速度撮影し、同じフレームに写った 2 つのカウンタの
+差を読む。**カウンタは毎フレーム描き替わるので、変化駆動のキャプチャも同時に働く。**
 
 ---
 
@@ -418,6 +525,8 @@ apps/web/dist/index.html  →  ホストアプリのリソースへコピー
 1. `stasel/WebRTC` の最新版が対応する macOS / iOS の最低バージョンと、同梱 libwebrtc の版
 2. shiguredo/webrtc-build の Windows ビルドの提供状況と版
 3. `io.github.webrtc-sdk:android` の維持状況（供給が止まった場合の代替）
-4. libwebrtc の VideoToolbox エンコーダが実際に B フレームを無効化しているか（§2.3）
-5. `RTCRtpReceiver.jitterBufferTarget` の Safari 対応状況（未対応なら iPad ビューアの遅延がどこまで下がるか）
+4. ~~libwebrtc の VideoToolbox エンコーダが実際に B フレームを無効化しているか~~ → **確認済み。無効。
+   長 GOP も既定で効いている**（§2.3）。代わりに level の広告が壊れていることが分かった
+5. `RTCRtpReceiver.jitterBufferTarget` の Safari 対応状況（未対応なら iPad ビューアの遅延がどこまで下がるか）。
+   Chrome では 0 を設定でき、ジッタバッファは 8.3ms まで下がることを実測（§2.11）
 6. macOS 15+ のローカルネットワークアクセス許諾がバックグラウンドの待受にどう影響するか

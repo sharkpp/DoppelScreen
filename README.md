@@ -22,7 +22,7 @@ PC もしくはモバイル端末の画面を、同一ネットワーク上の�
 
 # 開発
 
-macOS ホスト + Web ビューアを実装中です（M0）。
+macOS ホスト + Web ビューアを実装中です（M1）。
 
 ```sh
 make macos-dev-certificate   # 初回のみ。画面収録の許可がリビルドで外れないようにする
@@ -39,9 +39,12 @@ make e2e                     # ホストを起動し、実ブラウザから繋�
 | `make macos-selftest` | UI なしでキャプチャの健全性を確認 |
 | `make macos-serve` | UI なしで配信を立ち上げ、接続先を表示して待つ |
 | `make web-test` | ビューアの単体テスト |
-| `make e2e` | ホスト + 実ブラウザの通し確認 |
+| `make e2e` | ホスト + 実ブラウザの通し確認（遅延の内訳も記録する） |
+| `make latency-clock` | glass-to-glass 実測用のミリ秒カウンタを表示 |
 | `make macos-reset-permission` | 画面収録の許可をリセット |
 
 # 状態
 
-M0（骨格と計測）を実装中。ホストの画面がブラウザに映るところまで動きます。
+M1（低遅延化）を実装中。ホストの画面がブラウザに映り、H.264 のハードウェアエンコードで
+ディスプレイの実解像度のまま届きます。遅延の内訳は `make e2e` が記録します
+（[docs/STACK.md §2.11](docs/STACK.md)）。
