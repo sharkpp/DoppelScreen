@@ -63,6 +63,18 @@ final class PeerObserver: NSObject, RTCPeerConnectionDelegate, @unchecked Sendab
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 }
 
+extension RTCStatisticsReport {
+    /// RTP ストリームが実際に使っているコーデック。
+    ///
+    /// `codec` の統計は**ネゴシエートされた全コーデックぶん**現れるため、種別だけで拾うと
+    /// 使っていないものを掴む（実際に H.264 で流れているのに VP8 と報告された）。
+    /// `inbound-rtp` / `outbound-rtp` が指す `codecId` から引く。
+    func mimeType(of stream: RTCStatistics) -> String? {
+        guard let id = stream.values["codecId"] as? String else { return nil }
+        return statistics[id]?.values["mimeType"] as? String
+    }
+}
+
 extension RTCIceConnectionState {
     var label: String {
         switch self {

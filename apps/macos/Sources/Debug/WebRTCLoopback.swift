@@ -13,6 +13,8 @@ final class WebRTCLoopback: @unchecked Sendable {
     struct Result: Sendable {
         var iceConnectionState: String = "new"
         var codec: String?
+        /// `VideoToolbox` 以外ならハードウェアエンコードが効いていない
+        var encoderImplementation: String?
         var framesEncoded: Int = 0
         var framesDecoded: Int = 0
         var decodedWidth: Int = 0
@@ -90,7 +92,11 @@ final class WebRTCLoopback: @unchecked Sendable {
     // MARK: - 接続
 
     func connect() async throws {
-        sender.add(pipeline.track, streamIds: ["screen"])
+        // 配信経路（`PeerTransport`）と同じく転送専用で張る
+        let transceiverInit = RTCRtpTransceiverInit()
+        transceiverInit.direction = .sendOnly
+        transceiverInit.streamIds = ["screen"]
+        let videoSender = sender.addTransceiver(with: pipeline.track, init: transceiverInit)?.sender
 
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         let offer = try await sender.offer(for: constraints)
@@ -102,6 +108,11 @@ final class WebRTCLoopback: @unchecked Sendable {
         try await receiver.setLocalDescription(answer)
         try await sender.setRemoteDescription(answer)
         toSender.attach(sender)
+
+        // 配信経路（`PeerTransport`）と同じ符号化方針を通す。
+        // ここが違うと、ループバックで確認した解像度が実配信と一致しなくなる
+        VideoEncoding.apply(to: sender)
+        if let videoSender { VideoEncoding.apply(to: videoSender) }
 
         attachRenderer()
     }
@@ -170,6 +181,7 @@ final class WebRTCLoopback: @unchecked Sendable {
             switch statistics.type {
             case "outbound-rtp":
                 result.framesEncoded = statistics.values["framesEncoded"] as? Int ?? 0
+                result.encoderImplementation = statistics.values["encoderImplementation"] as? String
             case "candidate-pair":
                 let state = statistics.values["state"] as? String ?? "?"
                 let sent = statistics.values["requestsSent"] as? Int ?? 0
@@ -180,17 +192,12 @@ final class WebRTCLoopback: @unchecked Sendable {
             }
         }
 
-        for statistics in await receiver.statistics().statistics.values {
-            switch statistics.type {
-            case "inbound-rtp":
-                result.framesDecoded = statistics.values["framesDecoded"] as? Int ?? 0
-                result.decodedWidth = statistics.values["frameWidth"] as? Int ?? 0
-                result.decodedHeight = statistics.values["frameHeight"] as? Int ?? 0
-            case "codec":
-                result.codec = statistics.values["mimeType"] as? String
-            default:
-                break
-            }
+        let received = await receiver.statistics()
+        for statistics in received.statistics.values where statistics.type == "inbound-rtp" {
+            result.framesDecoded = statistics.values["framesDecoded"] as? Int ?? 0
+            result.decodedWidth = statistics.values["frameWidth"] as? Int ?? 0
+            result.decodedHeight = statistics.values["frameHeight"] as? Int ?? 0
+            result.codec = received.mimeType(of: statistics)
         }
 
         return result

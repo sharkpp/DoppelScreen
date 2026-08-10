@@ -22,10 +22,11 @@ final class VideoPipeline: @unchecked Sendable {
         track = factory.videoTrack(with: source, trackId: trackID)
     }
 
-    /// libwebrtc の既定のエンコーダ／デコーダを使う。macOS では VideoToolbox が選ばれる。
+    /// エンコードは H.264 のみ（`H264EncoderFactory`）。デコードはループバック検証でしか
+    /// 使わないため既定のままにする（ビューア側の復号はブラウザが行う）。
     static func makeFactory() -> RTCPeerConnectionFactory {
         RTCPeerConnectionFactory(
-            encoderFactory: RTCDefaultVideoEncoderFactory(),
+            encoderFactory: H264EncoderFactory(),
             decoderFactory: RTCDefaultVideoDecoderFactory()
         )
     }

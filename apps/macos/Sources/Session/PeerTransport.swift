@@ -86,12 +86,23 @@ final class PeerTransport: @unchecked Sendable {
             self?.report(.closed("ビューアが切断しました"))
         }
 
-        peer.add(track, streamIds: ["screen"])
+        // 転送専用。受信する気がないことを SDP に明記する（SPEC.md §1.2）。
+        // 送出できないコーデックがネゴシエートされる余地も消える
+        let transceiverInit = RTCRtpTransceiverInit()
+        transceiverInit.direction = .sendOnly
+        transceiverInit.streamIds = ["screen"]
+        let sender = peer.addTransceiver(with: track, init: transceiverInit)?.sender
         report(.negotiating)
 
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         let offer = try await peer.offer(for: constraints)
         try await peer.setLocalDescription(offer)
+
+        // ローカル記述が入って初めて送出側のパラメータが確定する。
+        // ここで潤沢なビットレートを与えないと、立ち上がりの推定で解像度が落ちる（SPEC.md §3.2）
+        VideoEncoding.apply(to: peer)
+        if let sender { VideoEncoding.apply(to: sender) }
+
         connection.send(.offer(sdp: offer.sdp))
         log.info("offer sent to \(self.remoteDescription, privacy: .public)")
     }
@@ -132,9 +143,22 @@ final class PeerTransport: @unchecked Sendable {
     struct Statistics: Sendable, Equatable {
         var iceConnectionState = "new"
         var codec: String?
+        /// 実際に動いているエンコーダ。`VideoToolbox` 以外ならハードウェアエンコードが
+        /// 効いていない（＝ソフトウェアへ落ちている）
+        var encoderImplementation: String?
         var framesSent = 0
         var frameWidth = 0
         var frameHeight = 0
+        var framesEncoded = 0
+        /// 長 GOP が効いているかの指標。定期挿入があれば数秒ごとに増える（SPEC.md §3.2）
+        var keyFramesEncoded = 0
+        /// 1 フレームあたりの符号化時間。遅延バジェットのエンコード区間（SPEC.md §3.1）
+        var encodeMs = 0.0
+        /// パケット化から送出までの滞留。1 パケットあたり
+        var packetSendMs = 0.0
+        var targetBitrateMbps = 0.0
+        /// `none` 以外なら帯域か CPU で頭打ちになっている。解像度低下の原因の切り分けに使う
+        var qualityLimitationReason = "none"
         /// ICE の接続性チェックの内訳。「送れていない」のか「返ってこない」のかを切り分ける
         var candidatePairs: [String] = []
     }
@@ -143,14 +167,25 @@ final class PeerTransport: @unchecked Sendable {
         var result = Statistics()
         result.iceConnectionState = peer.iceConnectionState.label
 
-        for entry in await peer.statistics().statistics.values {
+        let report = await peer.statistics()
+        for entry in report.statistics.values {
             switch entry.type {
             case "outbound-rtp":
+                result.codec = report.mimeType(of: entry)
+                result.encoderImplementation = entry.values["encoderImplementation"] as? String
                 result.framesSent = entry.values["framesSent"] as? Int ?? 0
                 result.frameWidth = entry.values["frameWidth"] as? Int ?? 0
                 result.frameHeight = entry.values["frameHeight"] as? Int ?? 0
-            case "codec":
-                result.codec = entry.values["mimeType"] as? String
+                result.framesEncoded = entry.values["framesEncoded"] as? Int ?? 0
+                result.keyFramesEncoded = entry.values["keyFramesEncoded"] as? Int ?? 0
+                result.targetBitrateMbps = (entry.values["targetBitrate"] as? Double ?? 0) / 1_000_000
+                result.qualityLimitationReason = entry.values["qualityLimitationReason"] as? String ?? "none"
+                // 累積値なので、フレーム数・パケット数で割って 1 件あたりに直す
+                result.encodeMs = average(entry.values["totalEncodeTime"], over: result.framesEncoded)
+                result.packetSendMs = average(
+                    entry.values["totalPacketSendDelay"],
+                    over: entry.values["packetsSent"] as? Int ?? 0
+                )
             case "candidate-pair":
                 let state = entry.values["state"] as? String ?? "?"
                 let sent = entry.values["requestsSent"] as? Int ?? 0
@@ -161,5 +196,11 @@ final class PeerTransport: @unchecked Sendable {
             }
         }
         return result
+    }
+
+    /// 秒の累積値を件数で割ってミリ秒にする
+    private func average(_ total: Any?, over count: Int) -> Double {
+        guard count > 0, let seconds = total as? Double else { return 0 }
+        return seconds / Double(count) * 1000
     }
 }

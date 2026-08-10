@@ -61,8 +61,9 @@ final class SessionController {
     private let server = LocalServer()
     private var transport: PeerTransport?
 
-    /// 実際に動いているストリームの構成。UI の選択と食い違ったら追従させる
-    private var activeConfiguration: ScreenCapturer.Configuration?
+    /// 実際に動いているストリームの構成。UI の選択と食い違ったら追従させる。
+    /// 送出解像度が落ちていないかの突き合わせにも使う（`--serve`）
+    private(set) var activeConfiguration: ScreenCapturer.Configuration?
     private var pendingWork: Task<Void, Never>?
     private var displayObservation: Task<Void, Never>?
     private var statisticsTimer: Timer?
@@ -174,10 +175,12 @@ final class SessionController {
     }
 
     private func configuration(for display: DisplayInfo) -> ScreenCapturer.Configuration {
-        ScreenCapturer.Configuration(
+        // 符号化できない解像度を撮っても意味がない。縮小は SCStream に任せる
+        let size = VideoEncoding.encodableSize(width: display.pixelWidth, height: display.pixelHeight)
+        return ScreenCapturer.Configuration(
             displayID: display.id,
-            width: display.pixelWidth,
-            height: display.pixelHeight
+            width: size.width,
+            height: size.height
         )
     }
 
