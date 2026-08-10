@@ -198,8 +198,15 @@ SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載
 - `SecIdentity` は `SecIdentityCreateWithCertificate` で証明書から作る。identity クラスへの問い合わせを避けられる。
 - PKCS#12 は組み立てない。**秘密鍵と証明書をそれぞれ入れれば、キーチェーンが公開鍵ハッシュで結び付けてくれる。**
   `security import` 系で踏む「空パスワード不可」「OpenSSL 3 既定の暗号化を受け付けない」（§2.5）を回避できる。
-- EC の秘密鍵を `SecKeyCreateWithData` へ渡すときは **ANSI X9.63 形式**（`04 || X || Y || K`）。
-  swift-crypto の `P256.Signing.PrivateKey.x963Representation` がそのまま使える。
+- **`kSecUseDataProtectionKeychain: false` を明示する。** 付けないとデータ保護キーチェーンへ回され、
+  `keychain-access-groups` エンタイトルメントを要求されて `errSecMissingEntitlement` で弾かれる。
+  このエンタイトルメントには実 Team ID とプロビジョニングプロファイルが要り、自己署名の開発ビルドでは付けられない。
+- **鍵はキーチェーンの中で作る**（`SecKeyCreateRandomKey` + `kSecAttrIsPermanent`）。
+  `SecKeyCreateWithData` で作った「浮いた」鍵を `kSecValueRef` で `SecItemAdd` に渡すと、
+  ファイルベースのキーチェーンは項目参照として受け付けず `errSecInvalidItemRef` を返す。
+  作ってから `SecKeyCopyExternalRepresentation` で取り出し、swift-certificates に署名させる
+  （EC の秘密鍵は **ANSI X9.63 形式** = `04 || X || Y || K` で出入りする）。
+  証明書のほうは `SecCertificateCreateWithData` で作った参照をそのまま `SecItemAdd` に渡してよい。
 
 ### 2.5 権限とネットワーク
 

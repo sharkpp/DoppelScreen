@@ -23,6 +23,17 @@ enum TLSIdentity {
     /// キーチェーンの属性に頼らず、証明書の中身で判定するために使う
     private static let marker = "net.sharkpp.doppelscreen.tls"
 
+    /// **ファイルベース（レガシー）のキーチェーンを明示的に使う。**
+    /// 指定しないとデータ保護キーチェーンへ回され、`keychain-access-groups` の
+    /// エンタイトルメントを要求されて `errSecMissingEntitlement` で弾かれる。
+    /// このエンタイトルメントは実 Team ID とプロビジョニングプロファイルが要り、
+    /// 自己署名の開発ビルドでは付けられない。
+    private static func query(_ attributes: [CFString: Any]) -> CFDictionary {
+        var merged = attributes
+        merged[kSecUseDataProtectionKeychain] = false
+        return merged as CFDictionary
+    }
+
     enum IdentityError: LocalizedError {
         case keychain(OSStatus, String)
         case certificateCreationFailed
@@ -61,8 +72,7 @@ enum TLSIdentity {
     // MARK: - 生成
 
     private static func generate(addresses: Set<String>) throws -> SecIdentity {
-        let key = P256.Signing.PrivateKey()
-        let privateKey = Certificate.PrivateKey(key)
+        let privateKey = Certificate.PrivateKey(try storeNewKey())
         let name = try DistinguishedName {
             CommonName("DoppelScreen")
             OrganizationName("sharkpp.net")
@@ -95,31 +105,8 @@ enum TLSIdentity {
             throw IdentityError.certificateCreationFailed
         }
 
-        var error: Unmanaged<CFError>?
-        // EC の秘密鍵は ANSI X9.63 形式（04 || X || Y || K）で渡す
-        guard let secKey = SecKeyCreateWithData(
-            key.x963Representation as CFData,
-            [
-                kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom,
-                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
-                kSecAttrKeySizeInBits: 256,
-            ] as CFDictionary,
-            &error
-        ) else {
-            throw IdentityError.keyCreationFailed(
-                (error?.takeRetainedValue() as Error?)?.localizedDescription ?? "unknown"
-            )
-        }
-
-        // 秘密鍵と証明書を入れると、キーチェーンが公開鍵ハッシュで両者を結び付け、
+        // 証明書を入れると、キーチェーンが公開鍵ハッシュで秘密鍵と結び付け、
         // `SecIdentity` として引けるようになる。PKCS#12 を組み立てる必要はない
-        try add([
-            kSecClass: kSecClassKey,
-            kSecValueRef: secKey,
-            kSecAttrLabel: marker,
-            kSecAttrIsPermanent: true,
-        ], operation: "秘密鍵の保存")
-
         try add([
             kSecClass: kSecClassCertificate,
             kSecValueRef: secCertificate,
@@ -131,6 +118,35 @@ enum TLSIdentity {
         }
         log.info("generated a TLS certificate for \(addresses.sorted().joined(separator: ", "), privacy: .public)")
         return identity
+    }
+
+    /// **鍵はキーチェーンの中で作る。**
+    /// `SecKeyCreateWithData` で作った「浮いた」鍵を `kSecValueRef` で `SecItemAdd` に渡すと、
+    /// ファイルベースのキーチェーンは項目参照として受け付けず `errSecInvalidItemRef` を返す。
+    /// 作ってから取り出して swift-certificates に署名させる。
+    private static func storeNewKey() throws -> P256.Signing.PrivateKey {
+        var error: Unmanaged<CFError>?
+        guard let secKey = SecKeyCreateRandomKey(query([
+            kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits: 256,
+            kSecPrivateKeyAttrs: [
+                kSecAttrIsPermanent: true,
+                kSecAttrLabel: marker,
+            ] as [CFString: Any],
+        ]), &error) else {
+            throw IdentityError.keyCreationFailed(
+                (error?.takeRetainedValue() as Error?)?.localizedDescription ?? "unknown"
+            )
+        }
+
+        // EC の秘密鍵は ANSI X9.63 形式（04 || X || Y || K）で出てくる
+        guard let external = SecKeyCopyExternalRepresentation(secKey, &error) as Data? else {
+            try? delete([kSecClass: kSecClassKey, kSecMatchItemList: [secKey]], operation: "秘密鍵の巻き戻し")
+            throw IdentityError.keyCreationFailed(
+                (error?.takeRetainedValue() as Error?)?.localizedDescription ?? "取り出せません"
+            )
+        }
+        return try P256.Signing.PrivateKey(x963Representation: external)
     }
 
     private static func generalName(for address: String) -> GeneralName? {
@@ -150,11 +166,11 @@ enum TLSIdentity {
     /// キーチェーンの属性による絞り込みは当てにしない。
     private static func findStored() throws -> Stored? {
         var result: CFTypeRef?
-        let status = SecItemCopyMatching([
+        let status = SecItemCopyMatching(query([
             kSecClass: kSecClassCertificate,
             kSecMatchLimit: kSecMatchLimitAll,
             kSecReturnRef: true,
-        ] as CFDictionary, &result)
+        ]), &result)
 
         switch status {
         case errSecSuccess:
@@ -206,7 +222,7 @@ enum TLSIdentity {
     }
 
     private static func add(_ attributes: [CFString: Any], operation: String) throws {
-        let status = SecItemAdd(attributes as CFDictionary, nil)
+        let status = SecItemAdd(query(attributes), nil)
         // 既にある場合は作り直しの途中。同一性は呼び出し側が判断済みなので通す
         guard status == errSecSuccess || status == errSecDuplicateItem else {
             throw IdentityError.keychain(status, operation)
@@ -228,8 +244,8 @@ enum TLSIdentity {
         )
     }
 
-    private static func delete(_ query: [CFString: Any], operation: String) throws {
-        let status = SecItemDelete(query as CFDictionary)
+    private static func delete(_ attributes: [CFString: Any], operation: String) throws {
+        let status = SecItemDelete(query(attributes))
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw IdentityError.keychain(status, operation)
         }
