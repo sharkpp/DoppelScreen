@@ -23,9 +23,18 @@ export type Report = {
     viewerState: string;
     iceConnectionState: string;
     codec?: string;
+    encoderImplementation?: string;
     framesSent: number;
     frameWidth: number;
     frameHeight: number;
+    capturedWidth: number;
+    capturedHeight: number;
+    framesEncoded: number;
+    keyFramesEncoded: number;
+    encodeMs: number;
+    packetSendMs: number;
+    targetBitrateMbps: number;
+    qualityLimitationReason: string;
     candidatePairs: string[];
   };
 };

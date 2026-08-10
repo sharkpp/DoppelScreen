@@ -1,4 +1,4 @@
-.PHONY: macos-dev-certificate macos-generate macos-build macos-run macos-selftest macos-serve macos-clean macos-reset-permission web-install web-build web-test e2e
+.PHONY: macos-dev-certificate macos-generate macos-build macos-run macos-selftest macos-serve macos-clean macos-reset-permission latency-clock web-install web-build web-test e2e
 
 BUNDLE_ID := net.sharkpp.doppelscreen
 
@@ -60,6 +60,11 @@ macos-serve: macos-build
 		sleep 1; \
 	done
 	@cat $(SELFTEST_DIR)/serve.json
+
+# glass-to-glass の実測用（SPEC.md §3.3）。ホスト画面にミリ秒カウンタを出し、
+# ホストとビューアを 1 台のカメラで同時に高速度撮影して差分を読む。
+latency-clock:
+	open docs/latency-clock.html
 
 web-install:
 	npm --prefix $(WEB_DIR) install

@@ -18,9 +18,20 @@ extension SelfTest {
         var viewerState: String
         var iceConnectionState: String
         var codec: String?
+        /// `VideoToolbox` 以外ならハードウェアエンコードが効いていない
+        var encoderImplementation: String?
         var framesSent: Int
         var frameWidth: Int
         var frameHeight: Int
+        /// キャプチャ時に要求した解像度。送出解像度が落ちていないかの突き合わせに使う
+        var capturedWidth: Int
+        var capturedHeight: Int
+        var framesEncoded: Int
+        var keyFramesEncoded: Int
+        var encodeMs: Double
+        var packetSendMs: Double
+        var targetBitrateMbps: Double
+        var qualityLimitationReason: String
         var candidatePairs: [String]
     }
 
@@ -92,14 +103,20 @@ extension SelfTest {
         write(handshake, named: "serve.json", to: options.outputDirectory)
 
         // ビューアの接続を待つ。来なければ来なかったことを記録して終わる
+        let deadline = ContinuousClock.now + options.duration
         let connected = await waitUntil(timeout: options.duration) {
             if case .streaming = session.viewerState { return true }
             return false
         }
-        // 繋がった直後は統計が空なので、少し流してから読む
-        if connected { try? await Task.sleep(for: .seconds(3)) }
+        // 繋がったら `--duration` を使い切るまで配信を続ける。統計は落ち着いてから読みたいのと、
+        // 手で繋いだときに数秒で切れないようにするため。最低 3 秒は流す
+        if connected {
+            let until = max(deadline, ContinuousClock.now + .seconds(3))
+            try? await Task.sleep(until: until, clock: .continuous)
+        }
 
         let statistics = await session.streamStatistics()
+        let captured = session.activeConfiguration
         report.serve = ServeReport(
             port: port,
             token: session.token,
@@ -110,9 +127,18 @@ extension SelfTest {
             viewerState: describe(session.viewerState),
             iceConnectionState: statistics?.iceConnectionState ?? "none",
             codec: statistics?.codec,
+            encoderImplementation: statistics?.encoderImplementation,
             framesSent: statistics?.framesSent ?? 0,
             frameWidth: statistics?.frameWidth ?? 0,
             frameHeight: statistics?.frameHeight ?? 0,
+            capturedWidth: captured?.width ?? 0,
+            capturedHeight: captured?.height ?? 0,
+            framesEncoded: statistics?.framesEncoded ?? 0,
+            keyFramesEncoded: statistics?.keyFramesEncoded ?? 0,
+            encodeMs: statistics?.encodeMs ?? 0,
+            packetSendMs: statistics?.packetSendMs ?? 0,
+            targetBitrateMbps: statistics?.targetBitrateMbps ?? 0,
+            qualityLimitationReason: statistics?.qualityLimitationReason ?? "none",
             candidatePairs: statistics?.candidatePairs ?? []
         )
 

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>DoppelScreen glass-to-glass 計測用カウンタ</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #000;
+        color: #fff;
+        overflow: hidden;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        font: 700 18vw/1 ui-monospace, "SF Mono", Menlo, monospace;
+        letter-spacing: 0.02em;
+      }
+      /* 撮影した動画から目視で読む。桁が動いていることが分かればよい */
+      #clock {
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="clock">000.0</div>
+    <script>
+      // ホスト画面に全画面表示し、ホストとビューアを 1 台のカメラで同時に撮る。
+      // フレームごとに描き替えることで、キャプチャ側の「変化駆動」も同時に働く（SPEC.md §3.3）。
+      const clock = document.getElementById("clock");
+      const start = performance.now();
+      const tick = () => {
+        const elapsed = (performance.now() - start) % 10000;
+        clock.textContent = (elapsed / 1000).toFixed(3).padStart(6, "0");
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>

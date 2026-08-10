@@ -112,6 +112,7 @@ enum SelfTest {
         struct Loopback: Codable {
             var iceConnectionState: String
             var codec: String?
+            var encoderImplementation: String?
             var framesEncoded: Int
             var framesDecoded: Int
             /// レンダラまで届いたフレーム数
@@ -210,10 +211,11 @@ enum SelfTest {
             return report
         }
 
+        let size = VideoEncoding.encodableSize(width: target.pixelWidth, height: target.pixelHeight)
         let configuration = ScreenCapturer.Configuration(
             displayID: target.id,
-            width: target.pixelWidth,
-            height: target.pixelHeight
+            width: size.width,
+            height: size.height
         )
 
         do {
@@ -270,6 +272,7 @@ enum SelfTest {
             report.loopback = Report.Loopback(
                 iceConnectionState: result.iceConnectionState,
                 codec: result.codec,
+                encoderImplementation: result.encoderImplementation,
                 framesEncoded: result.framesEncoded,
                 framesDecoded: result.framesDecoded,
                 renderedFrames: result.renderedFrames,
