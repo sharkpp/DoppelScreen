@@ -2,6 +2,7 @@ import CoreImage
 import CoreMedia
 import Foundation
 import ScreenCaptureKit
+import WebRTC
 
 /// UI を出さずにキャプチャを一通り走らせ、結果を JSON と PNG で書き出す検証モード。
 ///
@@ -19,6 +20,8 @@ enum SelfTest {
 
         var displayID: CGDirectDisplayID?
         var duration: Duration = .seconds(3)
+        /// キャプチャを WebRTC のループバックまで通すか（docs/STACK.md §2.8 ステップ 4）
+        var loopback: Bool = false
         var outputDirectory: URL = FileManager.default.temporaryDirectory
             .appending(path: "doppelscreen-selftest", directoryHint: .isDirectory)
 
@@ -26,13 +29,15 @@ enum SelfTest {
             arguments.contains(flag)
         }
 
-        /// `--selftest [--display <id>] [--duration <秒>] [--output <ディレクトリ>]`
+        /// `--selftest [--display <id>] [--duration <秒>] [--output <ディレクトリ>] [--loopback]`
         init(arguments: [String]) throws {
             var iterator = arguments.dropFirst().makeIterator()
             while let argument = iterator.next() {
                 switch argument {
                 case Options.flag:
                     continue
+                case "--loopback":
+                    loopback = true
                 case "--display":
                     guard let value = iterator.next(), let id = UInt32(value) else {
                         throw Failure("--display にはディスプレイ ID を指定してください")
@@ -99,10 +104,27 @@ enum SelfTest {
             var framePath: String
         }
 
+        /// キャプチャ → エンコード → 転送 → デコードが通ったかの記録
+        struct Loopback: Codable {
+            var iceConnectionState: String
+            var codec: String?
+            var framesEncoded: Int
+            var framesDecoded: Int
+            /// レンダラまで届いたフレーム数
+            var renderedFrames: Int
+            var decodedWidth: Int
+            var decodedHeight: Int
+            /// ICE の接続性チェックの内訳
+            var candidatePairs: [String]
+            /// デコード済みフレームを書き出した PNG のパス
+            var decodedFramePath: String?
+        }
+
         var ok: Bool = false
         var permissionGranted: Bool
         var displays: [Display] = []
         var capture: Capture?
+        var loopback: Loopback?
         var error: String?
     }
 
@@ -119,9 +141,9 @@ enum SelfTest {
             exit(2)
         }
 
-        // ストリームが開かないまま待ち続けると `open -W` が返らなくなる
+        // ストリームが開かないまま待ち続けると、レポートを待つ側が返らなくなる
         let watchdog = Task {
-            try? await Task.sleep(for: options.duration + .seconds(15))
+            try? await Task.sleep(for: options.duration + .seconds(options.loopback ? 45 : 15))
             emit(
                 Report(permissionGranted: ScreenRecordingPermission.isGranted, error: "タイムアウトしました"),
                 to: options.outputDirectory
@@ -156,7 +178,11 @@ enum SelfTest {
 
         let capturer = ScreenCapturer()
         let latestFrame = FrameBox()
-        capturer.setFrameHandler { latestFrame.store($0) }
+        let loopback = options.loopback ? WebRTCLoopback() : nil
+        capturer.setFrameHandler { sampleBuffer in
+            latestFrame.store(sampleBuffer)
+            loopback?.pipeline.capture(sampleBuffer)
+        }
 
         let displays: [DisplayInfo]
         do {
@@ -192,6 +218,17 @@ enum SelfTest {
             return report
         }
 
+        var loopbackError: String?
+        if let loopback {
+            do {
+                try await loopback.connect()
+                try await loopback.waitUntilConnected(timeout: .seconds(10))
+            } catch {
+                // 失敗しても診断（candidate-pair の内訳）を残したいので、ここでは打ち切らない
+                loopbackError = "ループバックの確立に失敗しました: \(error.localizedDescription)"
+            }
+        }
+
         try? await Task.sleep(for: options.duration)
 
         let statistics = capturer.currentStatistics()
@@ -209,6 +246,36 @@ enum SelfTest {
             writeError = "フレームが 1 枚も届きませんでした"
         }
 
+        if let loopback {
+            let result = await loopback.result()
+            var decodedPath: String?
+            if let frame = loopback.latestDecodedFrame {
+                let path = options.outputDirectory.appending(path: "decoded.png")
+                do {
+                    try writePNG(frame, to: path, in: options.outputDirectory)
+                    decodedPath = path.path(percentEncoded: false)
+                } catch {
+                    loopbackError = loopbackError
+                        ?? "デコード済みフレームの書き出しに失敗しました: \(error.localizedDescription)"
+                }
+            } else {
+                loopbackError = loopbackError ?? "デコード済みフレームが届きませんでした"
+            }
+
+            report.loopback = Report.Loopback(
+                iceConnectionState: result.iceConnectionState,
+                codec: result.codec,
+                framesEncoded: result.framesEncoded,
+                framesDecoded: result.framesDecoded,
+                renderedFrames: result.renderedFrames,
+                decodedWidth: result.decodedWidth,
+                decodedHeight: result.decodedHeight,
+                candidatePairs: result.candidatePairs,
+                decodedFramePath: decodedPath
+            )
+            loopback.close()
+        }
+
         await capturer.stop()
 
         report.capture = Report.Capture(
@@ -222,8 +289,10 @@ enum SelfTest {
             lastFrameHeight: Int(statistics.lastFrameSize.height),
             framePath: framePath.path(percentEncoded: false)
         )
-        report.error = writeError
-        report.ok = writeError == nil && statistics.deliveredFrames > 0
+        report.error = writeError ?? loopbackError
+        report.ok = report.error == nil
+            && statistics.deliveredFrames > 0
+            && (report.loopback.map { $0.framesDecoded > 0 } ?? true)
         return report
     }
 
@@ -233,6 +302,18 @@ enum SelfTest {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             throw Failure("フレームからピクセルバッファを取り出せません")
         }
+        try writePNG(pixelBuffer, to: url, in: directory)
+    }
+
+    /// デコード済みフレームの書き出し。macOS の VideoToolbox デコーダは `CVPixelBuffer` を返す。
+    private static func writePNG(_ frame: RTCVideoFrame, to url: URL, in directory: URL) throws {
+        guard let buffer = frame.buffer as? RTCCVPixelBuffer else {
+            throw Failure("デコード済みフレームが CVPixelBuffer ではありません（\(type(of: frame.buffer))）")
+        }
+        try writePNG(buffer.pixelBuffer, to: url, in: directory)
+    }
+
+    private static func writePNG(_ pixelBuffer: CVPixelBuffer, to url: URL, in directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try CIContext().writePNGRepresentation(
             of: CIImage(cvPixelBuffer: pixelBuffer),

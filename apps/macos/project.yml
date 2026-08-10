@@ -13,12 +13,21 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
 
+packages:
+  # libwebrtc のビルド済み xcframework（docs/STACK.md §2.1）。
+  # エンコーダの挙動が遅延に直結するため、版は明示的に固定して意図的に上げる。
+  WebRTC:
+    url: https://github.com/stasel/WebRTC
+    exactVersion: 151.0.0
+
 targets:
   DoppelScreen:
     type: application
     platform: macOS
     sources:
       - path: Sources
+    dependencies:
+      - package: WebRTC
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: net.sharkpp.doppelscreen
@@ -29,12 +38,20 @@ targets:
         # Apple Development 証明書を用意したらここを差し替える。
         CODE_SIGN_IDENTITY: "DoppelScreen Development"
         CODE_SIGN_STYLE: Manual
-        ENABLE_HARDENED_RUNTIME: YES
         # Xcode 16 の SwiftUI プレビュー用 dylib。Team ID を持たない自己署名では
         # 本体と Team ID が食い違い、dyld が読み込みを拒否して起動時にクラッシュする
         ENABLE_DEBUG_DYLIB: NO
         # 画面収録とローカルサーバ待受はサンドボックスと両立しない（SPEC.md §6.1）
         ENABLE_APP_SANDBOX: NO
+      configs:
+        # hardened runtime のライブラリ検証は「本体と同じ Team ID」を要求する。
+        # 自己署名証明書は Team ID を持たないため、同じ ID で再署名した
+        # WebRTC.framework すら読み込めず起動時にクラッシュする。
+        # Apple Development / Developer ID 証明書に移行したら Debug でも YES に戻せる。
+        Debug:
+          ENABLE_HARDENED_RUNTIME: NO
+        Release:
+          ENABLE_HARDENED_RUNTIME: YES
     info:
       path: Sources/Info.plist
       properties:

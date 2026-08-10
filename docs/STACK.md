@@ -183,6 +183,7 @@ SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載
 ```
 make macos-selftest
 make macos-selftest SELFTEST_ARGS="--display 1 --duration 5"
+make macos-selftest SELFTEST_ARGS="--loopback"        # WebRTC まで通す（§2.9）
 ```
 
 UI を出さずに、権限判定 → ディスプレイ列挙 → 指定秒キャプチャ → **最終フレームを PNG 保存** → レポート JSON を書き出して終了する。出力は `apps/macos/build/selftest/`（`report.json` と `frame.png`）。
@@ -210,6 +211,23 @@ UI を出さずに、権限判定 → ディスプレイ列挙 → 指定秒キ�
 6. **WebSocket シグナリング**（`/signal`）で SDP / ICE を交換し、ブラウザに映像を出す ← **ここで初めて end-to-end が通る**
 7. **HTTPS リスナと証明書生成**を追加（:8423）
 8. **遅延計測オーバーレイ** — ここまでを M0 とする
+
+### 2.9 WebRTC ループバック検証（`--loopback`）
+
+同一プロセス内に `RTCPeerConnection` を 2 つ作り、offer / answer を直結する。シグナリングもブラウザも介さないため、**libwebrtc 自体の問題とその外側の問題を切り分けられる**。
+
+`make macos-selftest SELFTEST_ARGS="--loopback"` で、キャプチャ → H.264 エンコード → 転送 → デコード → 描画までを 1 回で確認し、**デコード後のフレームを `decoded.png` に書き出す**。`frame.png`（キャプチャ直後）と見比べればピクセル経路の正しさが分かる。
+
+実装上の落とし穴（すべて対処済み）:
+
+- **`rtpReceiver.track` は呼ぶたびに新しいラッパーを返す。保持しないと解放時にレンダラごと外れる。** デコードは進むのにフレームが 1 枚も届かない、という分かりにくい症状になる。
+- **受信トラックへのレンダラ接続を `didAdd rtpReceiver:` に頼らない。** 任意実装のデリゲートで、呼ばれるかどうかが libwebrtc の版に依存する。`setRemoteDescription` 後に `receiver.receivers` から明示的に取る。
+- **リモート記述が入る前に届いた ICE candidate は捨てられる。** 宛先が決まるまで溜めて、決まった時点で流す。
+- **`withCheckedContinuation` はキャンセルできない。** `withTaskGroup` でタイムアウトと競争させても、グループは全ての子タスクの完了を待つため、解放されない継続を抱えたまま永久に止まる。タイムアウトも「同じ継続を一度だけ解放する」形で表現する。
+- **hardened runtime のライブラリ検証は本体と同じ Team ID を要求する。** 自己署名では `WebRTC.framework` を読み込めず起動時にクラッシュするため、Debug では無効にする（§2.5）。
+- **macOS 15 のローカルネットワーク許可が下りるまで ICE は checking のまま進まない。** candidate の収集（インタフェース列挙）は成功するので、症状が「接続だけしない」となり原因が分かりにくい。`candidate-pair` の `requestsSent` / `responsesReceived` を見れば「送れていない」のか「返ってこない」のかを切り分けられる。
+
+実測（メインディスプレイ 2880×1800、3 秒）: エンコード 185 / デコード 184 / 描画 184、コーデックは `video/H264`。**ただしデコード解像度は 960×600 に落ちる。** 立ち上がり時の帯域推定によるダウンスケールで、解像度追従（SPEC.md §7.1）とビットレート設定は M1 / M2 で扱う。
 
 ---
 
