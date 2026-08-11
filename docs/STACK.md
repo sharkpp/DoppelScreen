@@ -442,7 +442,12 @@ E2E の「遅延の内訳を実測して記録する」が、**ビューア側�
 （E2E が実効値 0 を確認している）ので、これは「目標 0 でも実際には詰まる」側の値であり、
 測定時のマシンの負荷にも揺れる。**次に削るならここ**。
 
-#### glass-to-glass の実測（手動）
+#### glass-to-glass の実測（手動）— 2026-08-11 に 50ms で目標達成
+
+**M1 の完了条件（glass-to-glass 60ms 以下）を満たした。** Wi-Fi・iPad 10.2 で中央値 50ms
+（[docs/latency-measurements.md](latency-measurements.md)）。目標条件である有線 LAN より不利な経路での値。
+最小 50ms と最大 67ms の差が 60Hz の 1 フレームちょうど（17ms）で、読みが表示フレームに
+量子化されている — 測定として素直に効いている。
 
 カメラが要るため自動化しない。**手順と記録は [docs/latency-measurements.md](latency-measurements.md) に集約する**
 （SPEC.md §3.3 の「リリースごとに同条件で記録し、リグレッションを検出する」の実体）。

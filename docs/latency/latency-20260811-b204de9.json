@@ -1,0 +1,42 @@
+{
+ "viewer": {
+  "fps": 47.69731535206391,
+  "width": 1152,
+  "height": 720,
+  "jitterBufferMs": 15.410304659498209,
+  "decodeMs": 3.2367634408602153,
+  "rttMs": 1,
+  "framesDropped": 0,
+  "megabitsPerSecond": 0.3774686041436751
+ },
+ "host": {
+  "candidatePairs": [
+   "succeeded sent=9 received=9"
+  ],
+  "capturedHeight": 720,
+  "capturedWidth": 1152,
+  "codec": "video/H264",
+  "displayID": 1,
+  "encodeMs": 7.596651445966514,
+  "encoderImplementation": "VideoToolbox",
+  "frameHeight": 720,
+  "frameWidth": 1152,
+  "framesEncoded": 657,
+  "framesSent": 657,
+  "iceConnectionState": "completed",
+  "keyFramesEncoded": 2,
+  "packetSendMs": 3.2295733863837315,
+  "port": 50391,
+  "qualityLimitationReason": "none",
+  "secureUrls": [
+   "https://192.168.11.12:50390/?d=1#nv1a4ar0"
+  ],
+  "targetBitrateMbps": 38.24,
+  "token": "nv1a4ar0",
+  "urls": [
+   "http://192.168.11.12:50391/?d=1#nv1a4ar0"
+  ],
+  "viewerConnected": true,
+  "viewerState": "streaming(127.0.0.1)"
+ }
+}
