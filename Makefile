@@ -63,7 +63,10 @@ macos-serve: macos-build
 
 # glass-to-glass の実測用（SPEC.md §3.3）。ホスト画面にミリ秒カウンタを出し、
 # ホストとビューアを 1 台のカメラで同時に高速度撮影して差分を読む。
+# 手順と記録は docs/latency-measurements.md。
 latency-clock:
+	@echo "手順と記録先: docs/latency-measurements.md"
+	@echo "開いたページを全画面にしてから撮影してください。"
 	open docs/latency-clock.html
 
 web-install:

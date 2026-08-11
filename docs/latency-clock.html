@@ -14,28 +14,123 @@
       }
       body {
         display: grid;
+        grid-template-rows: 1fr auto auto;
         place-items: center;
-        font: 700 18vw/1 ui-monospace, "SF Mono", Menlo, monospace;
-        letter-spacing: 0.02em;
+        gap: 2vh;
+        padding: 3vh 3vw;
+        box-sizing: border-box;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
       }
-      /* 撮影した動画から目視で読む。桁が動いていることが分かればよい */
-      #clock {
+
+      /* 主たる読み取り対象。10 秒周期のミリ秒を 4 桁で出す。
+         小数点や秒の区切りを持たせない — 撮影した映像から 2 画面ぶんを
+         読んで引き算するので、桁が少ないほど間違えにくい */
+      #ms {
+        font-size: 30vh;
+        font-weight: 700;
+        line-height: 1;
         font-variant-numeric: tabular-nums;
+        letter-spacing: 0.04em;
+      }
+
+      /* 副の読み取り対象。1 ブロック = 表示 1 フレーム（60Hz で 16.7ms）。
+         ホストとビューアで光っているブロックの差を数えるだけで遅延が出る。
+         桁がブレて読めないコマでも、こちらは残る */
+      #blocks {
+        display: flex;
+        gap: 0.8vw;
+        width: 100%;
+      }
+      #blocks div {
+        flex: 1;
+        height: 12vh;
+        border-radius: 0.6vh;
+        background: #1a1a1a;
+      }
+      /* 3 つごとに色を変えて、離れた 2 画面でも位置を数えやすくする */
+      #blocks div:nth-child(6n + 4),
+      #blocks div:nth-child(6n + 5),
+      #blocks div:nth-child(6n + 6) {
+        background: #2e2e2e;
+      }
+      #blocks div.on {
+        background: #ff3b30;
+      }
+
+      #meta {
+        font-size: 2.6vh;
+        color: #8a8a8a;
+        text-align: center;
+      }
+      #meta b {
+        color: #ddd;
       }
     </style>
   </head>
   <body>
-    <div id="clock">000.0</div>
+    <div id="ms">0000</div>
+    <div id="blocks"></div>
+    <div id="meta">
+      上段 = ミリ秒（10 秒周期） / 下段 = 1 ブロック 1 フレーム（<b id="period"
+        >…</b
+      >）<br />
+      実測フレーム間隔 <b id="hz">…</b> — 60Hz 出ていない状態で撮っても意味がない
+    </div>
+
     <script>
-      // ホスト画面に全画面表示し、ホストとビューアを 1 台のカメラで同時に撮る。
-      // フレームごとに描き替えることで、キャプチャ側の「変化駆動」も同時に働く（SPEC.md §3.3）。
-      const clock = document.getElementById("clock");
+      // ホスト画面に全画面表示し、ホストとビューアを 1 台のカメラで同時に撮る（SPEC.md §3.3）。
+      // 写っている 2 つのカウンタの差が、そのまま glass-to-glass の遅延になる。
+      //
+      // フレームごとに全体が描き替わるので、キャプチャ側の「変化駆動」（SPEC.md §4.2）も
+      // 同時に働く。静止画を映して測ると、静止時の送出停止が効いて何も流れない。
+      const BLOCKS = 12;
+
+      const msLabel = document.getElementById("ms");
+      const hzLabel = document.getElementById("hz");
+      const periodLabel = document.getElementById("period");
+      const row = document.getElementById("blocks");
+
+      const cells = Array.from({ length: BLOCKS }, () => {
+        const cell = document.createElement("div");
+        row.append(cell);
+        return cell;
+      });
+
+      // 表示のリフレッシュレートは実測する。60Hz を前提に「1 ブロック = 16.7ms」と
+      // 決め打ちすると、120Hz の画面や省電力で落ちている状態で黙って倍ずれる
+      let interval = 1000 / 60;
+      let previous;
+      let lit = -1;
+
       const start = performance.now();
-      const tick = () => {
-        const elapsed = (performance.now() - start) % 10000;
-        clock.textContent = (elapsed / 1000).toFixed(3).padStart(6, "0");
+
+      function tick(now) {
         requestAnimationFrame(tick);
-      };
+
+        if (previous !== undefined) {
+          const delta = now - previous;
+          // 外れ値（タブの復帰など）は捨てて、ゆっくり追従させる
+          if (delta > 4 && delta < 40) interval += (delta - interval) * 0.05;
+        }
+        previous = now;
+
+        const elapsed = now - start;
+        msLabel.textContent = String(Math.floor(elapsed % 10000)).padStart(
+          4,
+          "0",
+        );
+
+        const index = Math.floor((elapsed % (interval * BLOCKS)) / interval);
+        if (index !== lit) {
+          if (lit >= 0) cells[lit].classList.remove("on");
+          cells[index].classList.add("on");
+          lit = index;
+        }
+
+        hzLabel.textContent = `${interval.toFixed(1)}ms / ${(1000 / interval).toFixed(1)}Hz`;
+        periodLabel.textContent = `${interval.toFixed(1)}ms`;
+      }
+
       requestAnimationFrame(tick);
     </script>
   </body>

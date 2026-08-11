@@ -149,7 +149,7 @@ LAN では帯域がほぼ制約にならないため、**ビットレートを�
 「低遅延」は計測できなければ検証できない。以下を最初から用意する。
 
 - **アプリ内計測**: `RTCPeerConnection.getStats()`（`jitterBufferDelay`, `totalDecodeTime`, `framesDropped`, RTT）+ `HTMLVideoElement.requestVideoFrameCallback()` の `expectedDisplayTime`。ビューアにオーバーレイ表示する。
-- **glass-to-glass 実測手順**: ホスト画面にミリ秒カウンタを全画面表示し、ホストとビューアを 1 台のカメラで同時に高速度撮影して差分を読む。リリースごとに同条件で記録し、リグレッションを検出する。
+- **glass-to-glass 実測手順**: ホスト画面にミリ秒カウンタを全画面表示し、ホストとビューアを 1 台のカメラで同時に高速度撮影して差分を読む。リリースごとに同条件で記録し、リグレッションを検出する。手順と記録は [docs/latency-measurements.md](docs/latency-measurements.md)。
 
 ---
 
