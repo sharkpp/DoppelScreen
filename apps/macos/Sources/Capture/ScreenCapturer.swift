@@ -50,7 +50,8 @@ final class ScreenCapturer: NSObject, @unchecked Sendable {
     // MARK: - 問い合わせ
 
     /// 接続可能なディスプレイを列挙する。名前とスケールは未解決（`DisplayNaming` で補う）。
-    func availableDisplays() async throws -> [DisplayInfo] {
+    /// 画面ごとにキャプチャを持つため（SPEC.md §5.2）、列挙はインスタンスに紐づかない。
+    static func availableDisplays() async throws -> [DisplayInfo] {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         return content.displays.map {
             DisplayInfo(id: $0.displayID, width: $0.width, height: $0.height, name: "Display \($0.displayID)")
@@ -85,6 +86,30 @@ final class ScreenCapturer: NSObject, @unchecked Sendable {
         }
 
         let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+        let stream = SCStream(filter: filter, configuration: Self.streamConfiguration(configuration), delegate: self)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
+        try await stream.startCapture()
+
+        stateLock.withLock {
+            self.stream = stream
+            statistics = Statistics()
+        }
+
+        log.info("capture started: display=\(configuration.displayID) \(configuration.width)x\(configuration.height)")
+    }
+
+    /// 解像度だけを差し替える（SPEC.md §7.1 の解像度追従）。
+    ///
+    /// ストリームを張り直すと、切り替えのたびに数フレーム落ちてキーフレームからやり直しになる。
+    /// `SCStream.updateConfiguration` は動いているストリームのまま構成を差し替える。
+    /// 動いていなければ何もしない（承認前など、まだ開始していない場合）。
+    func update(_ configuration: Configuration) async throws {
+        guard let stream = stateLock.withLock({ self.stream }) else { return }
+        try await stream.updateConfiguration(Self.streamConfiguration(configuration))
+        log.info("capture reconfigured: \(configuration.width)x\(configuration.height)")
+    }
+
+    private static func streamConfiguration(_ configuration: Configuration) -> SCStreamConfiguration {
         let streamConfiguration = SCStreamConfiguration()
         streamConfiguration.width = configuration.width
         streamConfiguration.height = configuration.height
@@ -95,17 +120,7 @@ final class ScreenCapturer: NSObject, @unchecked Sendable {
         streamConfiguration.showsCursor = configuration.showsCursor
         // VideoToolbox がそのまま扱えるフォーマット
         streamConfiguration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-
-        let stream = SCStream(filter: filter, configuration: streamConfiguration, delegate: self)
-        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
-        try await stream.startCapture()
-
-        stateLock.withLock {
-            self.stream = stream
-            statistics = Statistics()
-        }
-
-        log.info("capture started: display=\(configuration.displayID) \(configuration.width)x\(configuration.height)")
+        return streamConfiguration
     }
 
     func stop() async {

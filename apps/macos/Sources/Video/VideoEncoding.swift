@@ -6,7 +6,8 @@ import WebRTC
 /// 1/3 まで落ちる（実測 2880×1800 → 960×600）。LAN では帯域がほぼ制約に
 /// ならないため、**推定の初期値ごと潤沢に与えて量子化を浅く保つ**。
 ///
-/// M1 の時点では単一の設定。ビューアからの切り替え（品質プリセット）は M2。
+/// 解像度はビューアの表示サイズに追従させる（`followingSize`）。
+/// ビューアからの切り替え（品質プリセット、SPEC.md §7.2）は未実装。
 enum VideoEncoding {
 
     /// 立ち上がりで使わせる推定値。低い値から探らせない
@@ -25,15 +26,53 @@ enum VideoEncoding {
     ///
     /// 縮小は `SCStream` 側で行われるため（`SCStreamConfiguration.width` / `height`）、
     /// CPU 側のスケーリングは発生しない。
-    /// ビューアの表示サイズへの追従（SPEC.md §7.1）は M2。ここでは上限だけを見る。
+    /// ここで見るのは level の上限だけ。表示サイズへの追従は `followingSize`。
     static func encodableSize(width: Int, height: Int) -> (width: Int, height: Int) {
         let macroblocks = ((width + 15) / 16) * ((height + 15) / 16)
         guard macroblocks > maximumMacroblocks else { return (width, height) }
 
         let scale = (Double(maximumMacroblocks) / Double(macroblocks)).squareRoot()
-        // 4:2:0 は偶数の幅・高さを要求する
-        let even = { (value: Double) in max(2, Int(value * 0.5) * 2) }
         return (even(Double(width) * scale), even(Double(height) * scale))
+    }
+
+    /// 追従先の段階（高さ）。SPEC.md §7.1 の 720p / 1080p / 1440p / 2160p
+    static let resolutionSteps = [720, 1080, 1440, 2160]
+
+    /// ビューアの表示サイズに追従した符号化解像度（SPEC.md §7.1）。
+    ///
+    /// 表示先の物理ピクセル数を超える解像度を送っても、エンコード時間（＝遅延）と帯域を
+    /// 捨てるだけで何も得られない。M1 の実測では**エンコードだけがバジェットを超過し、
+    /// 支配要因は解像度だった**（docs/STACK.md §2.11）。ここが最大の遅延削減策になる。
+    ///
+    /// 実解像度にぴったり合わせず段階的な値へ丸めるのは、ウィンドウのリサイズのたびに
+    /// エンコーダの再構成とキーフレームが走るのを防ぐため。
+    /// ビューアはアスペクト比を保ってレターボックス表示する（SPEC.md §8.2）ので、
+    /// 実際に使われる画素数は長辺ではなく「はみ出さない側」で決まる。
+    static func followingSize(
+        display: (width: Int, height: Int),
+        viewport: (width: Int, height: Int)
+    ) -> (width: Int, height: Int) {
+        let native = encodableSize(width: display.width, height: display.height)
+        guard viewport.width > 0, viewport.height > 0, native.width > 0, native.height > 0 else {
+            return native
+        }
+
+        let scale = min(
+            Double(viewport.width) / Double(native.width),
+            Double(viewport.height) / Double(native.height)
+        )
+        let wanted = Double(native.height) * scale
+
+        // 直近上位の段階。ディスプレイの実解像度を超える段階には意味がない
+        guard let step = resolutionSteps.first(where: { Double($0) >= wanted }), step < native.height else {
+            return native
+        }
+        return (even(Double(native.width) * Double(step) / Double(native.height)), step)
+    }
+
+    /// 4:2:0 は偶数の幅・高さを要求する
+    private static func even(_ value: Double) -> Int {
+        max(2, Int(value * 0.5) * 2)
     }
 
     /// 帯域推定そのものの範囲。`currentBitrateBps` は推定値を**その場で強制する**ため、

@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// `--selftest --serve`。UI を出さずに実際の配信経路（キャプチャ → LocalServer → PeerTransport）を
@@ -10,6 +11,8 @@ extension SelfTest {
     struct ServeReport: Codable {
         var port: Int
         var token: String
+        /// 配信した画面。URL は画面ごとに分かれる（SPEC.md §5.2）
+        var displayID: CGDirectDisplayID
         var urls: [String]
         var secureUrls: [String]
         /// 証明書を用意できなかった理由。HTTP だけで動いている状態
@@ -40,6 +43,13 @@ extension SelfTest {
         var port: Int
         var securePort: Int?
         var token: String
+        /// 配信対象の画面。ビューアは `?d=` でこれを指す
+        var displayID: CGDirectDisplayID
+        /// 画面の実解像度。解像度追従（SPEC.md §7.1）が効いたかの突き合わせに使う
+        var displayWidth: Int
+        var displayHeight: Int
+        /// 待ち受けている全画面。同時配信の確認に使う
+        var displayIDs: [CGDirectDisplayID]
         var urls: [String]
         var secureUrls: [String]
     }
@@ -62,28 +72,33 @@ extension SelfTest {
         }
         report.displays = session.displays.map(Report.Display.init)
 
+        let target: DisplayInfo?
         if let requested = options.displayID {
-            guard session.displays.contains(where: { $0.id == requested }) else {
-                report.error = "ディスプレイ \(requested) が見つかりません"
-                return report
-            }
-            session.selectDisplay(requested)
+            target = session.displays.first { $0.id == requested }
+        } else {
+            target = session.displays.first
         }
+        guard let target, let stream = session.streams.first(where: { $0.id == target.id }) else {
+            report.error = options.displayID.map { "ディスプレイ \($0) が見つかりません" }
+                ?? "ディスプレイが 1 台も見つかりません"
+            return report
+        }
+        session.selectDisplay(target.id)
 
-        // `startCapture()` は直列キューへ積むだけで即座には状態が変わらない。
+        // `startServing()` は直列キューへ積むだけで即座には状態が変わらない。
         // 「`.starting` でない」で待つと積む前の `.idle` を拾って素通りする
-        session.startCapture()
+        session.startServing()
         let settled = await waitUntil(timeout: .seconds(10)) {
-            switch session.captureState {
+            switch session.serverState {
             case .running, .failed: true
             case .idle, .starting: false
             }
         }
         guard settled else {
-            report.error = "キャプチャが開始しませんでした"
+            report.error = "待受が始まりませんでした"
             return report
         }
-        if case .failed(let message) = session.captureState {
+        if case .failed(let message) = session.serverState {
             report.error = message
             return report
         }
@@ -97,15 +112,31 @@ extension SelfTest {
             port: port,
             securePort: session.securePort,
             token: session.token,
-            urls: session.endpoints.map(\.url),
-            secureUrls: session.endpoints.compactMap(\.secureURL)
+            displayID: target.id,
+            displayWidth: target.pixelWidth,
+            displayHeight: target.pixelHeight,
+            displayIDs: session.displays.map(\.id),
+            urls: session.endpoints(for: target.id).map(\.url),
+            secureUrls: session.endpoints(for: target.id).compactMap(\.secureURL)
         )
         write(handshake, named: "serve.json", to: options.outputDirectory)
+
+        // 承認は本来ホスト UI で人が押す（SPEC.md §5.2）。検証モードでは
+        // **同じ API を機械が押す**。承認経路そのものを迂回すると、製品と違う経路を測ることになる
+        let approver = Task { @MainActor in
+            while !Task.isCancelled {
+                for stream in session.streams {
+                    if case .awaitingApproval = stream.state { stream.approve() }
+                }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        defer { approver.cancel() }
 
         // ビューアの接続を待つ。来なければ来なかったことを記録して終わる
         let deadline = ContinuousClock.now + options.duration
         let connected = await waitUntil(timeout: options.duration) {
-            if case .streaming = session.viewerState { return true }
+            if case .streaming = stream.state { return true }
             return false
         }
         // 繋がったら `--duration` を使い切るまで配信を続ける。統計は落ち着いてから読みたいのと、
@@ -115,16 +146,17 @@ extension SelfTest {
             try? await Task.sleep(until: until, clock: .continuous)
         }
 
-        let statistics = await session.streamStatistics()
-        let captured = session.activeConfiguration
+        let statistics = stream.streamStatistics
+        let captured = stream.activeConfiguration
         report.serve = ServeReport(
             port: port,
             token: session.token,
+            displayID: target.id,
             urls: handshake.urls,
             secureUrls: handshake.secureUrls,
             certificateError: session.certificateError,
             viewerConnected: connected,
-            viewerState: describe(session.viewerState),
+            viewerState: describe(stream.state),
             iceConnectionState: statistics?.iceConnectionState ?? "none",
             codec: statistics?.codec,
             encoderImplementation: statistics?.encoderImplementation,
@@ -142,7 +174,7 @@ extension SelfTest {
             candidatePairs: statistics?.candidatePairs ?? []
         )
 
-        session.stopCapture()
+        session.stopServing()
 
         if !connected {
             report.error = "ビューアが接続しませんでした（\(handshake.urls.joined(separator: " / "))）"
@@ -153,10 +185,11 @@ extension SelfTest {
         return report
     }
 
-    private static func describe(_ state: SessionController.ViewerState) -> String {
+    private static func describe(_ state: DisplayStream.State) -> String {
         switch state {
-        case .none: "none"
-        case .negotiating(let address): "negotiating(\(address))"
+        case .idle: "idle"
+        case .awaitingApproval(let address): "awaitingApproval(\(address))"
+        case .starting(let address): "starting(\(address))"
         case .streaming(let address): "streaming(\(address))"
         case .failed(let reason): "failed(\(reason))"
         }

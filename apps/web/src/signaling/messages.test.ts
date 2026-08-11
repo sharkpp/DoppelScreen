@@ -40,8 +40,8 @@ describe("parseHostMessage", () => {
 
 describe("encodeViewerMessage", () => {
   it("hello を書く", () => {
-    expect(encodeViewerMessage({ t: "hello", token: "abc" })).toBe(
-      '{"t":"hello","token":"abc"}',
-    );
+    expect(
+      encodeViewerMessage({ t: "hello", token: "abc", display: 3 }),
+    ).toBe('{"t":"hello","token":"abc","display":3}');
   });
 });

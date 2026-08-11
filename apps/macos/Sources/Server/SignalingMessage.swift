@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// シグナリング（WebSocket `/signal`）で流すメッセージ。
@@ -15,8 +16,9 @@ enum HostSignal: Sendable, Equatable {
 
 /// ビューア → ホスト
 enum ViewerSignal: Sendable, Equatable {
-    /// 最初の 1 通。トークンはここで運ぶ
-    case hello(token: String)
+    /// 最初の 1 通。トークンと、URL が指す画面（`?d=`）をここで運ぶ（SPEC.md §5.2）。
+    /// 画面が省略された場合は、ホストが主画面を選ぶ
+    case hello(token: String, display: CGDirectDisplayID?)
     case answer(sdp: String)
     case candidate(IceCandidate)
 }
@@ -36,7 +38,7 @@ enum SignalingCodec {
         switch type {
         case "hello":
             guard let token = object["token"] as? String else { return nil }
-            return .hello(token: token)
+            return .hello(token: token, display: (object["display"] as? NSNumber)?.uint32Value)
         case "answer":
             guard let sdp = object["sdp"] as? String else { return nil }
             return .answer(sdp: sdp)

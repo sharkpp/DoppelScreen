@@ -8,14 +8,15 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(session.captureState == .running ? .green : .secondary)
+                    .fill(indicatorColor)
                     .frame(width: 8, height: 8)
                 Text(statusText)
                     .font(.callout.weight(.medium))
             }
 
-            if let display = session.selectedDisplay {
-                Text(display.name)
+            // 承認はウィンドウでしか行わない。ここでは件数だけ伝えて誘導する（SPEC.md §5.2）
+            ForEach(session.streams.filter(\.isActive), id: \.id) { stream in
+                Text(stream.display.name)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -35,11 +36,19 @@ struct MenuBarView: View {
         .frame(width: 220)
     }
 
+    private var indicatorColor: Color {
+        if !session.approvalRequests.isEmpty { return .orange }
+        return session.streams.contains(where: \.isActive) ? .green : .secondary
+    }
+
     private var statusText: String {
-        switch session.captureState {
+        let requests = session.approvalRequests.count
+        if requests > 0 { return "\(requests) 件の接続要求" }
+
+        return switch session.serverState {
         case .idle: "停止中"
         case .starting: "開始中…"
-        case .running: "配信中"
+        case .running: "待受中（\(session.streams.filter(\.isActive).count) 画面を配信）"
         case .failed: "エラー"
         }
     }

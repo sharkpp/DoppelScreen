@@ -1,8 +1,16 @@
+import {
+  encodeViewerControl,
+  parseHostControl,
+  type HostControl,
+  type ViewerControl,
+} from "./control";
 import { resolveEndpoint, type Endpoint } from "./signaling/endpoint";
 import { encodeViewerMessage, parseHostMessage } from "./signaling/messages";
 
 export type SessionState =
   | { name: "connecting" }
+  /** ホストの承認待ち（SPEC.md §5.2）。承認されるまでホストは画面を撮らない */
+  | { name: "awaitingApproval" }
   | { name: "negotiating" }
   | { name: "streaming" }
   | { name: "closed"; reason: string };
@@ -10,6 +18,8 @@ export type SessionState =
 export type SessionHandlers = {
   onState: (state: SessionState) => void;
   onStream: (stream: MediaStream) => void;
+  /** 制御チャネル（SPEC.md §7）からのメッセージ */
+  onControl?: (message: HostControl) => void;
 };
 
 /**
@@ -24,7 +34,10 @@ export class ViewerSession {
   private readonly handlers: SessionHandlers;
   private socket: WebSocket | null = null;
   private peer: RTCPeerConnection | null = null;
+  private control: RTCDataChannel | null = null;
   private pendingCandidates: RTCIceCandidateInit[] = [];
+  /** 直近に測った表示領域。チャネルが開く前に測った分もここから送る */
+  private viewport: ViewerControl | null = null;
   private closed = false;
 
   constructor(
@@ -42,7 +55,13 @@ export class ViewerSession {
     this.socket = socket;
 
     socket.addEventListener("open", () => {
-      this.send({ t: "hello", token: this.endpoint.token });
+      this.send({
+        t: "hello",
+        token: this.endpoint.token,
+        display: this.endpoint.display,
+      });
+      // offer が来るまではホストの承認を待っている（SPEC.md §5.2）
+      this.handlers.onState({ name: "awaitingApproval" });
     });
     socket.addEventListener("message", (event) => {
       if (typeof event.data === "string") void this.handleMessage(event.data);
@@ -58,6 +77,7 @@ export class ViewerSession {
   close(reason: string): void {
     if (this.closed) return;
     this.closed = true;
+    this.control = null;
     this.peer?.close();
     this.peer = null;
     this.socket?.close();
@@ -68,6 +88,17 @@ export class ViewerSession {
   /** 遅延計測オーバーレイ用。接続していなければ `null` */
   get connection(): RTCPeerConnection | null {
     return this.peer;
+  }
+
+  /**
+   * 表示できる領域をホストへ申告する（SPEC.md §7.1）。
+   * ホストはこれに合わせて符号化解像度を決めるため、**遅延に最も効く経路**。
+   * デバウンスはホスト側が持つので、ここでは変化のたびに素直に送る。
+   */
+  reportViewport(viewport: ViewerControl): void {
+    this.viewport = viewport;
+    if (this.control?.readyState !== "open") return;
+    this.control.send(encodeViewerControl(viewport));
   }
 
   private async handleMessage(raw: string): Promise<void> {
@@ -108,6 +139,20 @@ export class ViewerSession {
       const stream = event.streams[0] ?? new MediaStream([event.track]);
       this.handlers.onStream(stream);
       this.handlers.onState({ name: "streaming" });
+    });
+
+    // 制御チャネルはホストが張る（SPEC.md §7）。開いたら直ちに表示サイズを申告する
+    peer.addEventListener("datachannel", (event) => {
+      if (event.channel.label !== "control") return;
+      this.control = event.channel;
+      event.channel.addEventListener("open", () => {
+        if (this.viewport) this.reportViewport(this.viewport);
+      });
+      event.channel.addEventListener("message", (message: MessageEvent) => {
+        if (typeof message.data !== "string") return;
+        const parsed = parseHostControl(message.data);
+        if (parsed) this.handlers.onControl?.(parsed);
+      });
     });
 
     peer.addEventListener("icecandidate", (event) => {

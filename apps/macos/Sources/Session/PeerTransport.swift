@@ -22,6 +22,8 @@ final class PeerTransport: @unchecked Sendable {
     /// リモート記述が入る前に届いた candidate は捨てられる
     private let incoming = CandidateRelay()
     private let onStateChange: @Sendable (UUID, State) -> Void
+    /// 制御チャネル（SPEC.md §7）。`start(track:)` で張る
+    private var control: ControlChannel?
 
     /// 接続元の表示用
     let remoteDescription: String
@@ -69,12 +71,24 @@ final class PeerTransport: @unchecked Sendable {
 
     enum TransportError: LocalizedError {
         case peerConnectionUnavailable
+        case controlChannelUnavailable
 
         var errorDescription: String? {
             switch self {
             case .peerConnectionUnavailable: "PeerConnection を生成できません"
+            case .controlChannelUnavailable: "制御チャネルを生成できません"
             }
         }
+    }
+
+    /// 制御チャネルが開いた瞬間。`hello` はここから送る（SPEC.md §7）
+    var onControlOpen: (@Sendable () -> Void)?
+    /// ビューアからの制御メッセージ
+    var onControl: (@Sendable (ViewerControl) -> Void)?
+
+    /// 制御チャネルへ送る。開く前に呼んだ分は落ちる
+    func send(_ message: HostControl) {
+        control?.send(message)
     }
 
     /// トラックを載せて offer を送る。以降はビューアからの answer / candidate を待つ。
@@ -92,6 +106,17 @@ final class PeerTransport: @unchecked Sendable {
         transceiverInit.direction = .sendOnly
         transceiverInit.streamIds = ["screen"]
         let sender = peer.addTransceiver(with: track, init: transceiverInit)?.sender
+
+        // 制御チャネルは offer を作る前に張る。後から足すと再ネゴシエートが要る（SPEC.md §7）。
+        // 既定で reliable / ordered
+        guard let channel = peer.dataChannel(forLabel: "control", configuration: RTCDataChannelConfiguration()) else {
+            throw TransportError.controlChannelUnavailable
+        }
+        let control = ControlChannel(channel: channel)
+        control.onOpen = { [weak self] in self?.onControlOpen?() }
+        control.onMessage = { [weak self] in self?.onControl?($0) }
+        self.control = control
+
         report(.negotiating)
 
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
@@ -149,6 +174,8 @@ final class PeerTransport: @unchecked Sendable {
         var framesSent = 0
         var frameWidth = 0
         var frameHeight = 0
+        /// 直近の送出フレームレート。制御チャネルの `stats` で流す（SPEC.md §7）
+        var fps = 0.0
         var framesEncoded = 0
         /// 長 GOP が効いているかの指標。定期挿入があれば数秒ごとに増える（SPEC.md §3.2）
         var keyFramesEncoded = 0
@@ -176,6 +203,7 @@ final class PeerTransport: @unchecked Sendable {
                 result.framesSent = entry.values["framesSent"] as? Int ?? 0
                 result.frameWidth = entry.values["frameWidth"] as? Int ?? 0
                 result.frameHeight = entry.values["frameHeight"] as? Int ?? 0
+                result.fps = entry.values["framesPerSecond"] as? Double ?? 0
                 result.framesEncoded = entry.values["framesEncoded"] as? Int ?? 0
                 result.keyFramesEncoded = entry.values["keyFramesEncoded"] as? Int ?? 0
                 result.targetBitrateMbps = (entry.values["targetBitrate"] as? Double ?? 0) / 1_000_000

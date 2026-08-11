@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreGraphics
 import CoreMedia
 import Foundation
 
@@ -6,10 +7,26 @@ import Foundation
 ///
 /// キャプチャ用キューから直接呼ばれるため、レイヤ参照をロックで守って保持する。
 /// フレームを `MainActor` へ運ばないことが目的（運ぶとコピーと遅延が発生する）。
+/// 画面ごとに独立したストリームが同時に走るため（SPEC.md §5.2）、どの画面を映すかを
+/// `source` で選ぶ。他の画面のフレームはここで捨てる。
 final class PreviewRenderer: @unchecked Sendable {
 
     private let lock = NSLock()
     private var renderer: AVSampleBufferVideoRenderer?
+    private var _source: CGDirectDisplayID?
+
+    /// プレビューに映す画面。切り替えたら前の画面の残像を消す
+    var source: CGDirectDisplayID? {
+        get { lock.withLock { _source } }
+        set {
+            let target = lock.withLock { () -> AVSampleBufferVideoRenderer? in
+                guard _source != newValue else { return nil }
+                _source = newValue
+                return renderer
+            }
+            target?.flush()
+        }
+    }
 
     func attach(_ renderer: AVSampleBufferVideoRenderer?) {
         lock.lock()
@@ -17,9 +34,9 @@ final class PreviewRenderer: @unchecked Sendable {
         self.renderer = renderer
     }
 
-    func enqueue(_ sampleBuffer: CMSampleBuffer) {
+    func enqueue(_ sampleBuffer: CMSampleBuffer, from displayID: CGDirectDisplayID) {
         lock.lock()
-        let target = renderer
+        let target = _source == displayID ? renderer : nil
         lock.unlock()
 
         guard let target else { return }

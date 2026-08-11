@@ -1,4 +1,5 @@
 import "./style.css";
+import { measureViewport } from "./control";
 import { format, summarize, type Sample, type StatsEntry } from "./latency";
 import { ViewerSession, type SessionState } from "./session";
 import { fetchSecurePort, secureURL } from "./signaling/secure";
@@ -37,20 +38,33 @@ function describe(state: SessionState): { message: string; autoHide: boolean } {
   switch (state.name) {
     case "connecting":
       return { message: "ホストへ接続しています…", autoHide: false };
+    case "awaitingApproval":
+      return {
+        message: "ホストでの承認を待っています…",
+        autoHide: false,
+      };
     case "negotiating":
       return { message: "映像を準備しています…", autoHide: false };
     case "streaming":
-      return { message: "接続しました", autoHide: true };
+      return {
+        message: displayName ? `${displayName} に接続` : "接続しました",
+        autoHide: true,
+      };
     case "closed":
       return { message: state.reason, autoHide: false };
   }
 }
 
 let streaming = false;
+/** ホストが繋いだかどうか。HTTPS 誘導の判定に使う */
+let reachedHost = false;
+let displayName = "";
 
 const session = new ViewerSession({
   onState: (state) => {
     streaming = state.name === "streaming";
+    if (state.name !== "connecting" && state.name !== "closed")
+      reachedHost = true;
     const { message, autoHide } = describe(state);
     show(message, autoHide);
     if (streaming) void keepAwake();
@@ -60,6 +74,25 @@ const session = new ViewerSession({
     void video
       .play()
       .catch(() => show("画面をタップして再生してください", false));
+  },
+  onControl: (message) => {
+    switch (message.t) {
+      // 画面の名前は映像より少し遅れて届く。届いた時点で言い直す
+      // （どの画面を映しているかは、複数の画面を配信できる以上、重要な情報）
+      case "hello":
+        displayName = message.display.name;
+        if (streaming) show(`${displayName} に接続`, true);
+        break;
+      case "display":
+        displayName = message.name;
+        if (streaming) show(`${displayName} に接続`, true);
+        break;
+      case "error":
+        show(message.message, false);
+        break;
+      case "stats":
+        break;
+    }
   },
 });
 
@@ -71,11 +104,25 @@ if (typeof RTCPeerConnection === "undefined") {
   );
 } else {
   session.start();
-  // 2. 生成はできたが 5 秒で確立しない場合も HTTPS 側へ誘導する
+  reportViewport();
+  // 2. ホストへ届いてすらいない場合も HTTPS 側へ誘導する。
+  //    判定材料は「シグナリングが繋がったか」だけにする — 繋がった後は
+  //    ホストの承認待ちで何分でも止まりうるので、時間では測れない（SPEC.md §5.2）
   window.setTimeout(() => {
-    if (!streaming) void offerSecureRoute("接続できません。");
+    if (!reachedHost) void offerSecureRoute("接続できません。");
   }, 5000);
 }
+
+// MARK: - 解像度追従（SPEC.md §7.1）
+
+/** ホストは表示先の物理ピクセル数に合わせて符号化する。遅延に最も効く経路 */
+function reportViewport(): void {
+  session.reportViewport(measureViewport(window));
+}
+
+window.addEventListener("resize", reportViewport);
+document.addEventListener("fullscreenchange", reportViewport);
+window.screen.orientation?.addEventListener("change", reportViewport);
 
 // MARK: - モニタとしての振る舞い
 

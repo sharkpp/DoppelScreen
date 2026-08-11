@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Network
 import NIOCore
@@ -51,10 +52,11 @@ final class LocalServer: @unchecked Sendable {
     /// 希望のポートが使われていたら空きポートへずらす。URL / QR には戻り値を使う。
     ///
     /// `onConnection` は認証を通ったビューアが接続したときに、ネットワーク側のスレッドから呼ばれる。
+    /// 第 2 引数はビューアが開いた URL が指す画面（SPEC.md §5.2）。
     @discardableResult
     func start(
         _ configuration: Configuration,
-        onConnection: @escaping @Sendable (SignalingConnection) -> Void
+        onConnection: @escaping @Sendable (SignalingConnection, CGDirectDisplayID?) -> Void
     ) async throws -> Listening {
         await stop()
 

@@ -192,7 +192,7 @@ enum SelfTest {
 
         let displays: [DisplayInfo]
         do {
-            displays = try await capturer.availableDisplays().map(DisplayNaming.decorate)
+            displays = try await ScreenCapturer.availableDisplays().map(DisplayNaming.decorate)
         } catch {
             report.error = "ディスプレイの列挙に失敗しました: \(error.localizedDescription)"
             return report

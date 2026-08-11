@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import NIOCore
 import NIOWebSocket
@@ -81,16 +82,18 @@ final class SignalingConnection: @unchecked Sendable {
 
 /// 認証（`hello` のトークン照合）を通ったものだけを `onAuthenticated` で外へ渡す。
 /// トークンが違えば理由を返して即切る（SPEC.md §5.2）。
+///
+/// `hello` はビューアが開いた URL が指す画面（`?d=`）も運ぶ。振り分けは受け取り側に任せる。
 final class SignalingHandler: ChannelInboundHandler {
     typealias InboundIn = WebSocketFrame
     typealias OutboundOut = WebSocketFrame
 
     private let token: String
-    private let onAuthenticated: @Sendable (SignalingConnection) -> Void
+    private let onAuthenticated: @Sendable (SignalingConnection, CGDirectDisplayID?) -> Void
     private var connection: SignalingConnection?
     private var authenticated = false
 
-    init(token: String, onAuthenticated: @escaping @Sendable (SignalingConnection) -> Void) {
+    init(token: String, onAuthenticated: @escaping @Sendable (SignalingConnection, CGDirectDisplayID?) -> Void) {
         self.token = token
         self.onAuthenticated = onAuthenticated
     }
@@ -128,7 +131,7 @@ final class SignalingHandler: ChannelInboundHandler {
         guard let signal = SignalingCodec.decodeViewerSignal(text) else { return }
 
         guard authenticated else {
-            guard case .hello(let presented) = signal, presented == token else {
+            guard case .hello(let presented, let display) = signal, presented == token else {
                 // 理由を届けてから切る。`channel` 経由で送ると close が先着して届かない
                 let channel = context.channel
                 write(.error(message: "接続トークンが正しくありません"), context: context)
@@ -136,7 +139,7 @@ final class SignalingHandler: ChannelInboundHandler {
                 return
             }
             authenticated = true
-            onAuthenticated(connection)
+            onAuthenticated(connection, display)
             return
         }
 

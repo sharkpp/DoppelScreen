@@ -18,7 +18,8 @@ export type HostMessage =
 
 /** ビューア → ホスト */
 export type ViewerMessage =
-  | { t: "hello"; token: string }
+  /** 最初の 1 通。トークンと、URL が指す画面を運ぶ（SPEC.md §5.2） */
+  | { t: "hello"; token: string; display: number | null }
   | { t: "answer"; sdp: string }
   | IceCandidateMessage;
 

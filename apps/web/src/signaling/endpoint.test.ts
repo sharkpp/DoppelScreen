@@ -10,7 +10,11 @@ describe("resolveEndpoint", () => {
         hash: "#tok",
         search: "",
       }),
-    ).toEqual({ signalUrl: "ws://192.168.1.10:8422/signal", token: "tok" });
+    ).toEqual({
+      signalUrl: "ws://192.168.1.10:8422/signal",
+      token: "tok",
+      display: null,
+    });
   });
 
   it("HTTPS なら wss:（混在コンテンツでブロックされるため必ず導出する）", () => {
@@ -21,7 +25,11 @@ describe("resolveEndpoint", () => {
         hash: "#tok",
         search: "",
       }),
-    ).toEqual({ signalUrl: "wss://192.168.1.10:8423/signal", token: "tok" });
+    ).toEqual({
+      signalUrl: "wss://192.168.1.10:8423/signal",
+      token: "tok",
+      display: null,
+    });
   });
 
   it("開発時は ?host= で実ホストへ向ける", () => {
@@ -32,7 +40,32 @@ describe("resolveEndpoint", () => {
         hash: "#tok",
         search: "?host=192.168.1.10:8422",
       }),
-    ).toEqual({ signalUrl: "ws://192.168.1.10:8422/signal", token: "tok" });
+    ).toEqual({
+      signalUrl: "ws://192.168.1.10:8422/signal",
+      token: "tok",
+      display: null,
+    });
+  });
+
+  it("?d= で映す画面を指す（画面ごとに URL が分かれる）", () => {
+    expect(
+      resolveEndpoint({
+        protocol: "http:",
+        host: "h",
+        hash: "#tok",
+        search: "?d=7",
+      }).display,
+    ).toBe(7);
+  });
+
+  it("画面の指定が無い・数でない・0 なら null（ホストが主画面を選ぶ）", () => {
+    const at = (search: string) =>
+      resolveEndpoint({ protocol: "http:", host: "h", hash: "#t", search })
+        .display;
+    expect(at("")).toBeNull();
+    expect(at("?d=abc")).toBeNull();
+    expect(at("?d=0")).toBeNull();
+    expect(at("?d=1.5")).toBeNull();
   });
 
   it("fragment がなければトークンは空", () => {

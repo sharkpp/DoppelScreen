@@ -5,32 +5,27 @@ import Observation
 import WebRTC
 
 /// アプリ全体の状態機械（SPEC.md §2.3）。
-/// M0 の時点ではキャプチャのライフサイクルと権限状態のみを持つ。
 ///
-/// キャプチャの開始・停止・再構成は、UI 操作とディスプレイ構成変更の両方から届く。
-/// 順序が入れ替わると「UI の表示と実際に動いているストリームが食い違う」ため、
+/// 受け持つのは「権限」「ディスプレイの一覧」「待受」「ビューアの振り分け」まで。
+/// 画面ごとの配信そのものは `DisplayStream` が持つ（SPEC.md §5.2）。
+///
+/// 待受の開始・停止とディスプレイ構成変更は、UI とシステムの両方から届く。
+/// 順序が入れ替わると「UI の表示と実際に動いているものが食い違う」ため、
 /// すべての操作を単一の直列キュー（`enqueue`）に通す。
 @MainActor
 @Observable
 final class SessionController {
 
-    enum CaptureState: Equatable {
+    enum ServerState: Equatable {
         case idle
         case starting
         case running
         case failed(String)
     }
 
-    /// ビューア 1 本ぶんの状態。1 ホスト : 1 ビューア（SPEC.md §1.3）
-    enum ViewerState: Equatable {
-        case none
-        case negotiating(String)
-        case streaming(String)
-        case failed(String)
-    }
-
-    /// ビューアに渡す接続先。インタフェースが複数あるとき用に全件持つ（SPEC.md §5.2）
+    /// ビューアに渡す接続先。画面ごと・インタフェースごとに 1 件（SPEC.md §5.2）
     struct Endpoint: Identifiable, Equatable {
+        var displayID: CGDirectDisplayID
         var interfaceName: String
         var url: String
         /// HTTPS 経路。証明書を用意できなかった場合は `nil`
@@ -41,48 +36,46 @@ final class SessionController {
     private(set) var permissionGranted: Bool = ScreenRecordingPermission.isGranted
     private(set) var hasRequestedPermissionBefore: Bool = ScreenRecordingPermission.hasRequestedBefore
     private(set) var displays: [DisplayInfo] = []
+    /// 画面ごとの配信。`displays` と同じ順序で並ぶ
+    private(set) var streams: [DisplayStream] = []
+    /// プレビューに映す画面。配信の対象ではなく、ホスト UI の表示先を選ぶだけ
     private(set) var selectedDisplayID: CGDirectDisplayID?
-    private(set) var captureState: CaptureState = .idle
-    private(set) var statistics = ScreenCapturer.Statistics()
+    private(set) var serverState: ServerState = .idle
     private(set) var endpoints: [Endpoint] = []
     /// 実際に確保できたポート。希望の 8422 / 8423 が埋まっていればずれる
     private(set) var serverPort: Int?
     private(set) var securePort: Int?
     /// 証明書を用意できなかった理由。HTTP だけで動いている状態を UI に出す
     private(set) var certificateError: String?
-    private(set) var viewerState: ViewerState = .none
 
-    let capturer = ScreenCapturer()
     let previewRenderer = PreviewRenderer()
-    /// M0 では起動ごとに固定。TTL と再生成は M2（SPEC.md §5.2）
+    /// M0 では起動ごとに固定。TTL と再生成は未実装（SPEC.md §5.2）
     let token = PairingToken.generate()
 
-    private let pipeline = VideoPipeline(factory: VideoPipeline.makeFactory())
+    /// エンコーダは画面をまたいで 1 つで足りる。画面ごとに作ると
+    /// VideoToolbox のセッションも人数分増える
+    private let factory = VideoPipeline.makeFactory()
     private let server = LocalServer()
-    private var transport: PeerTransport?
-
-    /// 実際に動いているストリームの構成。UI の選択と食い違ったら追従させる。
-    /// 送出解像度が落ちていないかの突き合わせにも使う（`--serve`）
-    private(set) var activeConfiguration: ScreenCapturer.Configuration?
     private var pendingWork: Task<Void, Never>?
     private var displayObservation: Task<Void, Never>?
-    private var statisticsTimer: Timer?
+    private var addresses: [NetworkInterface] = []
 
     var selectedDisplay: DisplayInfo? {
         displays.first { $0.id == selectedDisplayID }
     }
 
+    var selectedStream: DisplayStream? {
+        streams.first { $0.id == selectedDisplayID }
+    }
+
+    /// 承認待ちのビューア（SPEC.md §5.2）。ホスト UI はこれを最優先で見せる
+    var approvalRequests: [DisplayStream] {
+        streams.filter { if case .awaitingApproval = $0.state { true } else { false } }
+    }
+
+    var isServing: Bool { serverState == .running }
+
     init() {
-        // フレームはキャプチャ用キューからプレビューと WebRTC へ直接流す。MainActor を経由させない
-        capturer.setFrameHandler { [previewRenderer, pipeline] sampleBuffer in
-            previewRenderer.enqueue(sampleBuffer)
-            pipeline.capture(sampleBuffer)
-        }
-        capturer.setStopHandler { [weak self] error in
-            // Error を跨がせず、表示に使う文字列だけを運ぶ
-            let message = error.localizedDescription
-            Task { @MainActor in self?.handleUnexpectedStop(message) }
-        }
         observeDisplayConfiguration()
     }
 
@@ -122,221 +115,146 @@ final class SessionController {
         enqueue { [weak self] in await self?.performRefreshDisplays() }
     }
 
+    /// プレビューに映す画面を選ぶ。配信には影響しない
     func selectDisplay(_ id: CGDirectDisplayID?) {
-        guard id != selectedDisplayID else { return }
         selectedDisplayID = id
-        enqueue { [weak self] in await self?.reconcileCapture() }
+        previewRenderer.source = id
     }
 
     private func performRefreshDisplays() async {
         guard permissionGranted else { return }
 
         do {
-            displays = try await capturer.availableDisplays().map(DisplayNaming.decorate)
+            displays = try await ScreenCapturer.availableDisplays().map(DisplayNaming.decorate)
         } catch {
-            captureState = .failed(error.localizedDescription)
+            serverState = .failed(error.localizedDescription)
             return
         }
 
-        // キャプチャ中のディスプレイが消えた場合、黙って別の画面へ切り替えると
-        // 意図しない画面を映し続けることになる。停止して理由を出す
-        if let active = activeConfiguration, !displays.contains(where: { $0.id == active.displayID }) {
-            await performStop()
-            captureState = .failed("キャプチャ中のディスプレイが切断されました")
+        // 生きている画面のストリームはそのまま使い続ける。作り直すと配信中の接続が切れる
+        let removed = streams.filter { stream in !displays.contains { $0.id == stream.id } }
+        streams = displays.map { display in
+            if let existing = streams.first(where: { $0.id == display.id }) {
+                existing.update(display: display)
+                return existing
+            }
+            return makeStream(for: display)
         }
+        for stream in removed { await stream.stop() }
 
         if !displays.contains(where: { $0.id == selectedDisplayID }) {
-            selectedDisplayID = displays.first?.id
+            selectDisplay(displays.first?.id)
         }
-
-        await reconcileCapture()
+        rebuildEndpoints()
     }
 
-    // MARK: - キャプチャ
-
-    func startCapture() {
-        enqueue { [weak self] in
-            guard let self, let display = selectedDisplay else { return }
-            await performStart(configuration(for: display))
-        }
+    private func makeStream(for display: DisplayInfo) -> DisplayStream {
+        let stream = DisplayStream(display: display, factory: factory, preview: previewRenderer)
+        // 画面が落ちたときは構成が変わっている可能性が高いので一覧を取り直す
+        stream.onUnexpectedStop = { [weak self] _ in self?.refreshDisplays() }
+        return stream
     }
 
-    func stopCapture() {
-        enqueue { [weak self] in await self?.performStop() }
+    // MARK: - 待受
+
+    /// ビューアの受け入れを開始する。**この時点では何も撮らない** — キャプチャが始まるのは
+    /// ビューアが繋いできて、ホストが承認したときだけ（SPEC.md §5.2）。
+    func startServing() {
+        enqueue { [weak self] in await self?.performStartServing() }
     }
 
-    /// 選択中のディスプレイと、実際に動いているストリームの構成を一致させる。
-    /// ディスプレイ ID が同じでも解像度が変わることがあるため、構成そのものを比較する。
-    private func reconcileCapture() async {
-        guard let active = activeConfiguration, let display = selectedDisplay else { return }
-        let desired = configuration(for: display)
-        guard desired != active else { return }
-        await performStart(desired)
+    func stopServing() {
+        enqueue { [weak self] in await self?.performStopServing() }
     }
 
-    private func configuration(for display: DisplayInfo) -> ScreenCapturer.Configuration {
-        // 符号化できない解像度を撮っても意味がない。縮小は SCStream に任せる
-        let size = VideoEncoding.encodableSize(width: display.pixelWidth, height: display.pixelHeight)
-        return ScreenCapturer.Configuration(
-            displayID: display.id,
-            width: size.width,
-            height: size.height
-        )
-    }
-
-    private func performStart(_ configuration: ScreenCapturer.Configuration) async {
-        captureState = .starting
-        do {
-            try await capturer.start(configuration)
-            try await startServerIfNeeded()
-            activeConfiguration = configuration
-            captureState = .running
-            startStatisticsPolling()
-        } catch {
-            activeConfiguration = nil
-            stopStatisticsPolling()
-            await performStop()
-            captureState = .failed(error.localizedDescription)
-        }
-    }
-
-    private func performStop() async {
-        stopStatisticsPolling()
-        disconnectViewer()
-        await server.stop()
-        endpoints = []
-        serverPort = nil
-        securePort = nil
-        certificateError = nil
-        await capturer.stop()
-        activeConfiguration = nil
-        captureState = .idle
-        statistics = ScreenCapturer.Statistics()
-    }
-
-    // MARK: - 配信
-
-    /// キャプチャが動いている間だけ待ち受ける。映すものが無い状態でビューアを受け入れない。
-    /// ディスプレイの再構成では貼り直しが走るため、既に待受中なら何もしない。
-    private func startServerIfNeeded() async throws {
+    private func performStartServing() async {
         guard serverPort == nil else { return }
+        serverState = .starting
 
-        let addresses = NetworkInterfaces.lanAddresses()
+        addresses = NetworkInterfaces.lanAddresses()
         // 証明書が用意できなくても配信自体は成立する。HTTP だけで続ける
         var identity: SecIdentity?
+        certificateError = nil
         do {
             identity = try TLSIdentity.current(addresses: addresses.map(\.address))
         } catch {
             certificateError = error.localizedDescription
         }
 
-        let listening = try await server.start(
-            .init(token: token, identity: identity)
-        ) { [weak self] connection in
-            Task { @MainActor in self?.acceptViewer(connection) }
-        }
-
-        serverPort = listening.port
-        securePort = listening.securePort
-        // 既定は HTTP。証明書の警告が出ないため、成立する環境では最良の体験になる（SPEC.md §5.3）
-        endpoints = addresses.map { address in
-            Endpoint(
-                interfaceName: address.name,
-                url: "http://\(address.address):\(listening.port)/#\(token)",
-                secureURL: listening.securePort.map { "https://\(address.address):\($0)/#\(token)" }
-            )
-        }
-    }
-
-    /// 1 ホスト : 1 ビューア。後から来たものを採り、古い方を切る
-    /// （ビューアのリロード時に、閉じ切っていない古い接続で塞がるのを避ける）。
-    private func acceptViewer(_ connection: SignalingConnection) {
-        transport?.close()
-        transport = nil
-
         do {
-            let transport = try PeerTransport(
-                factory: pipeline.factory,
-                connection: connection
-            ) { [weak self] id, state in
-                Task { @MainActor in self?.updateViewerState(state, from: id) }
+            let listening = try await server.start(
+                .init(token: token, identity: identity)
+            ) { [weak self] connection, display in
+                Task { @MainActor in self?.acceptViewer(connection, display: display) }
             }
-            self.transport = transport
-            Task {
-                do {
-                    try await transport.start(track: pipeline.track)
-                } catch {
-                    updateViewerState(.closed(error.localizedDescription), from: transport.id)
-                }
-            }
+            serverPort = listening.port
+            securePort = listening.securePort
+            serverState = .running
+            rebuildEndpoints()
         } catch {
-            viewerState = .failed(error.localizedDescription)
+            let message = error.localizedDescription
+            await performStopServing()
+            serverState = .failed(message)
+        }
+    }
+
+    private func performStopServing() async {
+        for stream in streams { await stream.stop() }
+        await server.stop()
+        endpoints = []
+        addresses = []
+        serverPort = nil
+        securePort = nil
+        certificateError = nil
+        serverState = .idle
+    }
+
+    /// 既定は HTTP。証明書の警告が出ないため、成立する環境では最良の体験になる（SPEC.md §5.3）。
+    /// 対象の画面はクエリで運ぶ。ビューアはこれを `hello` に載せて送り返す
+    private func rebuildEndpoints() {
+        guard let port = serverPort else {
+            endpoints = []
+            return
+        }
+        endpoints = displays.flatMap { display in
+            addresses.map { address in
+                Endpoint(
+                    displayID: display.id,
+                    interfaceName: address.name,
+                    url: "http://\(address.address):\(port)/?d=\(display.id)#\(token)",
+                    secureURL: securePort.map { "https://\(address.address):\($0)/?d=\(display.id)#\(token)" }
+                )
+            }
+        }
+    }
+
+    func endpoints(for displayID: CGDirectDisplayID) -> [Endpoint] {
+        endpoints.filter { $0.displayID == displayID }
+    }
+
+    /// ビューアを担当の画面へ振り分ける。指定された画面が無ければ理由を返して切る
+    /// （黙って別の画面を映すと、意図しない画面を配信することになる）。
+    private func acceptViewer(_ connection: SignalingConnection, display requested: CGDirectDisplayID?) {
+        // 画面が指定されていなければ主画面。指定されていて見つからなければ受け入れない
+        let target = if let requested { streams.first { $0.id == requested } } else { streams.first }
+        guard let target else {
+            connection.send(.error(message: "指定された画面が見つかりません"))
             connection.close()
+            return
         }
+        target.request(connection)
     }
+}
 
-    /// 既に切った接続からの通知は捨てる。古い「切断しました」で新しい接続を塗り潰さない
-    private func updateViewerState(_ state: PeerTransport.State, from id: UUID) {
-        guard let transport, transport.id == id else { return }
+// MARK: - 直列化
 
-        switch state {
-        case .negotiating:
-            viewerState = .negotiating(transport.remoteDescription)
-        case .streaming:
-            viewerState = .streaming(transport.remoteDescription)
-        case .closed(let reason):
-            self.transport = nil
-            viewerState = .failed(reason)
-        }
-    }
-
-    func disconnectViewer() {
-        transport?.close()
-        transport = nil
-        viewerState = .none
-    }
-
-    /// 送出側の実測。接続していなければ `nil`
-    func streamStatistics() async -> PeerTransport.Statistics? {
-        await transport?.statistics()
-    }
-
-    /// ストリームが自発的に落ちたときの後始末。構成が変わっている可能性が高いので一覧も取り直す。
-    private func handleUnexpectedStop(_ message: String) {
-        enqueue { [weak self] in
-            guard let self else { return }
-            stopStatisticsPolling()
-            activeConfiguration = nil
-            statistics = ScreenCapturer.Statistics()
-            captureState = .failed(message)
-            await performRefreshDisplays()
-        }
-    }
-
-    /// 直列化。前の操作が終わってから次を実行する
+extension SessionController {
+    /// 前の操作が終わってから次を実行する
     private func enqueue(_ operation: @escaping @MainActor () async -> Void) {
         let previous = pendingWork
         pendingWork = Task {
             await previous?.value
             await operation()
         }
-    }
-
-    // MARK: - 統計
-
-    /// フレームごとに `MainActor` へ hop すると遅延の原因になるため、1 秒ごとにまとめて読む。
-    private func startStatisticsPolling() {
-        stopStatisticsPolling()
-        statisticsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.statistics = self.capturer.currentStatistics()
-            }
-        }
-    }
-
-    private func stopStatisticsPolling() {
-        statisticsTimer?.invalidate()
-        statisticsTimer = nil
     }
 }
