@@ -400,12 +400,15 @@ TypeScript + Vite。フレームワークは使わない（映像面 + オーバ
 ├── README.md
 ├── apps/
 │   ├── macos/               Swift / SwiftUI（M0〜）
-│   ├── web/                 TypeScript + Vite ビューア（M0〜）
+│   ├── web/                 TypeScript + Vite
+│   │   ├── src/             ビューア（M0〜）
+│   │   └── latency/         glass-to-glass 計測用のカウンタと解析（§3.3）
 │   ├── windows/             C++/WinRT（M3〜）
 │   ├── android/             Kotlin（M4〜）
 │   └── ios/                 Swift + Broadcast Extension（M5〜）
 └── docs/
     ├── STACK.md             技術スタックと実装方法
+    ├── latency-measurements.md  glass-to-glass の実測手順と記録（§3.3）
     └── adr/                 アーキテクチャ決定記録
 ```
 
