@@ -79,7 +79,7 @@ latency-clock:
 
 # 撮影した動画から遅延を算出する。各コマの QR をすべて読み、時刻の差の中央値を採る。
 # 例: make latency-analyze VIDEO=~/Desktop/IMG_0001.MOV
-#     make latency-analyze VIDEO=... ANALYZE_ARGS="--fps 120 --json docs/latency/x.json"
+#     make latency-analyze VIDEO=... ANALYZE_ARGS="--every 4 --json docs/latency/x.json"
 latency-analyze:
 	@test -n "$(VIDEO)" || { echo "VIDEO=<動画のパス> を指定してください" >&2; exit 1; }
 	node $(WEB_DIR)/latency/analyze.mjs "$(VIDEO_PATH)" $(ANALYZE_ARGS)
