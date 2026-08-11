@@ -1,4 +1,4 @@
-.PHONY: macos-dev-certificate macos-generate macos-build macos-run macos-selftest macos-serve macos-clean macos-reset-permission latency-clock web-install web-build web-test e2e
+.PHONY: macos-dev-certificate macos-generate macos-build macos-run macos-selftest macos-serve macos-clean macos-reset-permission latency-clock latency-analyze web-install web-build web-test e2e
 
 BUNDLE_ID := net.sharkpp.doppelscreen
 
@@ -6,6 +6,10 @@ MACOS_DIR := apps/macos
 WEB_DIR := apps/web
 MACOS_BUILD := $(MACOS_DIR)/build
 MACOS_APP := $(MACOS_BUILD)/Build/Products/Debug/DoppelScreen.app
+
+LATENCY_CLOCK := $(WEB_DIR)/latency/dist/clock.html
+# make は ~ を展開しない。先頭の ~/ だけ補う（空白を含むパスも扱えるように引用する）
+VIDEO_PATH := $(patsubst ~/%,$(HOME)/%,$(VIDEO))
 
 SELFTEST_DIR := $(MACOS_BUILD)/selftest
 # 例: make macos-selftest SELFTEST_ARGS="--display 1 --duration 5"
@@ -61,13 +65,24 @@ macos-serve: macos-build
 	done
 	@cat $(SELFTEST_DIR)/serve.json
 
-# glass-to-glass の実測用（SPEC.md §3.3）。ホスト画面にミリ秒カウンタを出し、
-# ホストとビューアを 1 台のカメラで同時に高速度撮影して差分を読む。
+# glass-to-glass の実測用（SPEC.md §3.3）。ホスト画面にカウンタを全画面表示し、
+# ホストとビューアを 1 台のカメラで同時に高速度撮影する。
 # 手順と記録は docs/latency-measurements.md。
 latency-clock:
+	@npm --prefix $(WEB_DIR) run build:latency
+	@echo ""
 	@echo "手順と記録先: docs/latency-measurements.md"
-	@echo "開いたページを全画面にしてから撮影してください。"
-	open docs/latency-clock.html
+	@echo "開いたページを全画面にしてから 240fps で撮影し、"
+	@echo "  make latency-analyze VIDEO=<動画>"
+	@echo "で遅延を出してください。"
+	open $(LATENCY_CLOCK)
+
+# 撮影した動画から遅延を算出する。各コマの QR をすべて読み、時刻の差の中央値を採る。
+# 例: make latency-analyze VIDEO=~/Desktop/IMG_0001.MOV
+#     make latency-analyze VIDEO=... ANALYZE_ARGS="--fps 120 --json docs/latency/x.json"
+latency-analyze:
+	@test -n "$(VIDEO)" || { echo "VIDEO=<動画のパス> を指定してください" >&2; exit 1; }
+	node $(WEB_DIR)/latency/analyze.mjs "$(VIDEO_PATH)" $(ANALYZE_ARGS)
 
 web-install:
 	npm --prefix $(WEB_DIR) install

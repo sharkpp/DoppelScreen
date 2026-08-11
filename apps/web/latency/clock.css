@@ -1,0 +1,72 @@
+/* 撮影して読むための画面。装飾は持たない。
+   背景は白 — QR の余白は白でなければ finder pattern が見つからない。 */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #fff;
+  color: #000;
+  overflow: hidden;
+}
+
+body {
+  display: grid;
+  grid-template-rows: 1fr auto auto auto;
+  place-items: center;
+  gap: 1.5vh;
+  padding: 2vh 3vw;
+  box-sizing: border-box;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* 自動読み取り（latency/analyze.mjs）の対象 */
+#qr {
+  display: block;
+  /* 拡大時に補間させない。モジュールの境界が濁ると読めなくなる */
+  image-rendering: pixelated;
+}
+
+/* 人が読むときの主。QR と同じ時刻の下 4 桁 */
+#ms {
+  font-size: 14vh;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+/* 1 ブロック = 表示 1 フレーム。点灯位置の差を数えるだけで遅延が出る */
+#blocks {
+  display: flex;
+  gap: 0.8vw;
+  width: 100%;
+}
+#blocks div {
+  flex: 1;
+  height: 7vh;
+  border-radius: 0.6vh;
+  background: #e4e4e4;
+}
+/* 3 つごとに色を変えて、離れた 2 画面でも位置を数えやすくする */
+#blocks div:nth-child(6n + 4),
+#blocks div:nth-child(6n + 5),
+#blocks div:nth-child(6n + 6) {
+  background: #cdcdcd;
+}
+#blocks div.on {
+  background: #ff3b30;
+}
+
+#meta {
+  font-size: 2.2vh;
+  color: #767676;
+  text-align: center;
+}
+#meta b {
+  color: #222;
+}
+
+/* 静止モード（?t=）では実測フレーム間隔に意味がない */
+body[data-frozen] #meta {
+  visibility: hidden;
+}

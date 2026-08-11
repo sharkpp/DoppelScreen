@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>DoppelScreen glass-to-glass 計測用カウンタ</title>
+  </head>
+  <body>
+    <canvas id="qr"></canvas>
+    <div id="ms">0000</div>
+    <div id="blocks"></div>
+    <div id="meta">
+      QR = 経過ミリ秒（<span id="cycle">…</span> 周期） / 数字 = その下 4 桁 /
+      ブロック = 1 個 1 フレーム（<b id="period">…</b>）<br />
+      実測フレーム間隔 <b id="hz">…</b> — 60Hz 出ていない状態で撮っても意味がない
+    </div>
+    <script type="module" src="./clock.ts"></script>
+  </body>
+</html>
