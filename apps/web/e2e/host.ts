@@ -12,13 +12,21 @@ export type Handshake = {
   port: number;
   securePort?: number;
   token: string;
+  /** 配信対象の画面。URL は画面ごとに分かれる（SPEC.md §5.2） */
+  displayID: number;
+  displayWidth: number;
+  displayHeight: number;
+  /** 待ち受けている全画面 */
+  displayIDs: number[];
   urls: string[];
   secureUrls: string[];
 };
 export type Report = {
   ok: boolean;
   error?: string;
+  displays?: { id: number; name: string }[];
   serve?: {
+    displayID: number;
     viewerConnected: boolean;
     viewerState: string;
     iceConnectionState: string;
@@ -72,6 +80,20 @@ export class Host {
     // 検証モードは NSApplication を起動しないので `open -W` で待てない。
     // 待受開始の合図としてホストが書く serve.json を待つ
     return await this.readJSON<Handshake>("serve.json", 30_000);
+  }
+
+  /** ビューアが開く URL。画面はクエリで指す（SPEC.md §5.2）。
+   *  同一マシンから繋ぐのでループバックを使う。LAN アドレスでも通るが、
+   *  macOS 15 のローカルネットワーク許諾を巻き込まない分こちらが安定する */
+  static viewerURL(
+    handshake: Handshake,
+    options: { secure?: boolean; token?: string; display?: number } = {},
+  ): string {
+    const scheme = options.secure ? "https" : "http";
+    const port = options.secure ? handshake.securePort : handshake.port;
+    const token = options.token ?? handshake.token;
+    const display = options.display ?? handshake.displayID;
+    return `${scheme}://127.0.0.1:${port}/?d=${display}#${token}`;
   }
 
   /** ホスト側の最終レポート。ビューアへ実際にフレームが出たかはここで判定する */

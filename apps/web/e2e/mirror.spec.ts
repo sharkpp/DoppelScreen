@@ -19,10 +19,7 @@ test("ホストの画面がブラウザに映る", async ({ page }) => {
   const handshake = await host.start(15);
 
   try {
-    // 同一マシンから繋ぐのでループバックを使う。LAN アドレスでも通るが、
-    // macOS 15 のローカルネットワーク許諾を巻き込まない分こちらが安定する
-    const url = `http://127.0.0.1:${handshake.port}/#${handshake.token}`;
-    await page.goto(url);
+    await page.goto(Host.viewerURL(handshake));
 
     const video = page.locator("#screen");
     await expect(video).toBeVisible();
@@ -64,6 +61,8 @@ test("ホストの画面がブラウザに映る", async ({ page }) => {
     // 立ち上がりの帯域推定で解像度が落ちていないこと（SPEC.md §3.2）
     expect(report.serve?.frameWidth).toBe(report.serve?.capturedWidth);
     expect(report.serve?.frameHeight).toBe(report.serve?.capturedHeight);
+    // URL が指した画面が配信されていること（SPEC.md §5.2）
+    expect(report.serve?.displayID).toBe(handshake.displayID);
     expect(report.ok, report.error).toBe(true);
   } finally {
     await host.cleanup();
@@ -97,7 +96,7 @@ test("遅延の内訳を実測して記録する", async ({ page }) => {
       });
     });
 
-    await page.goto(`http://127.0.0.1:${handshake.port}/#${handshake.token}`);
+    await page.goto(Host.viewerURL(handshake));
     await expect
       .poll(
         () =>
@@ -172,9 +171,7 @@ test.describe("HTTPS 経路", () => {
 
     try {
       expect(handshake.securePort, "HTTPS の待受が立っていません").toBeTruthy();
-      await page.goto(
-        `https://127.0.0.1:${handshake.securePort}/#${handshake.token}`,
-      );
+      await page.goto(Host.viewerURL(handshake, { secure: true }));
 
       await expect
         .poll(
@@ -194,12 +191,114 @@ test.describe("HTTPS 経路", () => {
   });
 });
 
+/**
+ * M2 の解像度追従（SPEC.md §7.1）。遅延の支配要因はエンコードで、その支配要因は解像度
+ * （docs/STACK.md §2.11）。ここが効かないと 60ms 目標に届かない。
+ *
+ * 判定はビューア側の `videoHeight` で行う。ホストの申告ではなく、**実際に復号された
+ * 映像の解像度が変わったこと**を見る。
+ */
+test("ビューアの表示サイズに解像度が追従する", async ({ page }) => {
+  const host = new Host();
+  const handshake = await host.start(25);
+
+  try {
+    test.skip(
+      handshake.displayHeight <= 1440,
+      `ディスプレイが ${handshake.displayHeight}px しかなく、段階の差が出ません`,
+    );
+
+    const video = page.locator("#screen");
+    const height = () =>
+      video.evaluate((element: HTMLVideoElement) => element.videoHeight);
+
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(Host.viewerURL(handshake));
+
+    // 720p の表示先には 720p を送る。実解像度をそのまま送ると
+    // エンコード時間（＝遅延）と帯域を捨てるだけになる
+    await expect
+      .poll(height, { message: "720p へ落ちません", timeout: 30_000 })
+      .toBe(720);
+
+    // 広げたら追いつく。丸めは段階的（720p / 1080p / 1440p / 2160p）
+    await page.setViewportSize({ width: 2560, height: 1440 });
+    await expect
+      .poll(height, { message: "1440p へ上がりません", timeout: 30_000 })
+      .toBe(1440);
+
+    const report = await host.report(60_000);
+    expect(report.serve?.capturedHeight).toBe(1440);
+    expect(report.serve?.frameHeight).toBe(1440);
+  } finally {
+    await host.cleanup();
+  }
+});
+
+/**
+ * 画面ごとに URL を分ける（SPEC.md §5.2）。別々の端末で別々の画面を同時に見られること。
+ * ここが成り立たないと「画面ごとに配信する」という決定が実現できていない。
+ */
+test("2 つの画面を同時に別のビューアへ配信する", async ({ browser }) => {
+  const host = new Host();
+  const handshake = await host.start(25);
+
+  try {
+    test.skip(
+      handshake.displayIDs.length < 2,
+      "ディスプレイが 1 台しかありません",
+    );
+    const first = handshake.displayIDs[0]!;
+    const second = handshake.displayIDs[1]!;
+
+    // 端末を分けることに意味があるので、コンテキストごと分ける
+    const pages = await Promise.all(
+      [first, second].map(async (display) => {
+        const page = await browser.newPage();
+        await page.goto(Host.viewerURL(handshake, { display }));
+        return page;
+      }),
+    );
+
+    for (const [index, page] of pages.entries()) {
+      await expect
+        .poll(
+          () =>
+            page
+              .locator("#screen")
+              .evaluate((element: HTMLVideoElement) => element.videoWidth),
+          { message: `${index + 1} 台目に映像が届きません`, timeout: 30_000 },
+        )
+        .toBeGreaterThan(0);
+    }
+
+    // それぞれのビューアが、自分が指した画面の名前を受け取っていること
+    // （制御チャネルの `hello` — SPEC.md §7）。映像が出ているだけでは
+    // 「2 台とも同じ画面を見ている」可能性を潰せない
+    for (const page of pages) {
+      await expect(page.locator("#status")).toContainText("に接続");
+    }
+    const labels = await Promise.all(
+      pages.map((page) => page.locator("#status").textContent()),
+    );
+    for (const page of pages) await page.close();
+
+    const report = await host.report(60_000);
+    const nameOf = (id: number) =>
+      report.displays?.find((display) => display.id === id)?.name;
+    expect(labels[0]).toContain(nameOf(first));
+    expect(labels[1]).toContain(nameOf(second));
+  } finally {
+    await host.cleanup();
+  }
+});
+
 test("トークンが違うと接続できない", async ({ page }) => {
   const host = new Host();
   const handshake = await host.start(8);
 
   try {
-    await page.goto(`http://127.0.0.1:${handshake.port}/#wrongtoken`);
+    await page.goto(Host.viewerURL(handshake, { token: "wrongtoken" }));
     await expect(page.locator("#status")).toContainText("トークン");
 
     const report = await host.report(60_000);
