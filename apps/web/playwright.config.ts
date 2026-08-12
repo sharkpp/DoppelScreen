@@ -14,6 +14,9 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     channel: "chrome",
+    // ビューアの文言は表示言語で切り替わる（SPEC.md §11-7）。
+    // 判定を実行環境の言語設定に左右させないため固定する
+    locale: "ja-JP",
     launchOptions: {
       args: [
         // 自動再生を人の操作なしに通す

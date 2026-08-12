@@ -43,6 +43,8 @@ export type Report = {
     packetSendMs: number;
     targetBitrateMbps: number;
     qualityLimitationReason: string;
+    /** ビューアが選んだ品質プリセット（SPEC.md §7.2） */
+    quality: string;
     candidatePairs: string[];
   };
 };

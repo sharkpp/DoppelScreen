@@ -80,6 +80,9 @@ targets:
           ENABLE_HARDENED_RUNTIME: NO
         Release:
           ENABLE_HARDENED_RUNTIME: YES
+    scheme:
+      testTargets:
+        - DoppelScreenTests
     # ビューアはコード署名の前に置く必要があるため、全ビルドフェーズの後に走らせる
     postBuildScripts:
       - name: ビューアをビルドしてバンドルへ入れる
@@ -99,3 +102,35 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         NSHumanReadableCopyright: "Copyright © 2026 sharkpp.net"
+
+  # 実機も画面収録の許可も要らない層だけを確かめる（SPEC.md §11-6）。
+  # **アプリをテストホストにしない** — 起動すると UI と TCC が絡み、CI に載らなくなる。
+  # 代わりにソースをこのバンドルへ直接取り込む（同一モジュールなので internal に届く）。
+  DoppelScreenTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Sources
+        # @main を持つ。テストバンドルに入れられない
+        excludes:
+          - "App/**"
+      - path: Tests
+    dependencies:
+      - package: WebRTC
+      - package: SwiftNIO
+        product: NIOCore
+      - package: SwiftNIO
+        product: NIOHTTP1
+      - package: SwiftNIO
+        product: NIOWebSocket
+      - package: SwiftNIOTransportServices
+        product: NIOTransportServices
+      - package: SwiftCertificates
+        product: X509
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: net.sharkpp.doppelscreen.tests
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO

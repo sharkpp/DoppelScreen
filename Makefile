@@ -46,6 +46,16 @@ macos-build: macos-generate
 macos-run: macos-build
 	open $(MACOS_APP)
 
+# 実機も画面収録の許可も要らない層（ペアリング・プロトコル・プリセット）を確かめる。
+# アプリを起動しないので CI に載る（SPEC.md §11-6）
+macos-test: macos-generate
+	@xcodebuild -project $(MACOS_DIR)/DoppelScreen.xcodeproj \
+		-scheme DoppelScreen \
+		-configuration Debug \
+		-derivedDataPath $(MACOS_BUILD) \
+		-quiet \
+		test
+
 # UI を出さずにキャプチャを一通り走らせ、結果を JSON と PNG で残す。
 # TCC は「責任プロセス」で許諾を判定するため、ターミナルから実行ファイルを直接叩かず
 # `open` で起動する（直接叩くとターミナルの許諾が参照されて実態と食い違う）。

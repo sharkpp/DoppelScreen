@@ -34,14 +34,31 @@ describe("parseHostControl", () => {
     ).toEqual({ t: "stats", fps: 59.4, bitrate: 21400000, encodeMs: 0 });
   });
 
-  it("error を読む", () => {
+  it("error を読む。文言ではなくコードで届く（SPEC.md §11-7）", () => {
     expect(
-      parseHostControl('{"t":"error","code":"capture_stopped","message":"止"}'),
-    ).toEqual({ t: "error", code: "capture_stopped", message: "止" });
+      parseHostControl('{"t":"error","code":"capture_stopped","detail":"止"}'),
+    ).toEqual({ t: "error", code: "capture_stopped", detail: "止" });
+  });
+
+  it("error の detail は無くてよい", () => {
+    expect(parseHostControl('{"t":"error","code":"rejected"}')).toEqual({
+      t: "error",
+      code: "rejected",
+      detail: null,
+    });
+  });
+
+  it("resume を読む（SPEC.md §11-4）", () => {
+    expect(
+      parseHostControl('{"t":"resume","ticket":"abc","ttlMs":600000}'),
+    ).toEqual({ t: "resume", ticket: "abc", ttlMs: 600000 });
   });
 
   it("未知の種別・壊れた JSON・型違いは null を返して捨てる", () => {
+    // quality はビューア → ホストの向き。ホストからは来ない
     expect(parseHostControl('{"t":"quality","preset":"sharp"}')).toBeNull();
+    expect(parseHostControl('{"t":"error"}')).toBeNull();
+    expect(parseHostControl('{"t":"resume","ticket":"abc"}')).toBeNull();
     expect(parseHostControl("{")).toBeNull();
     expect(parseHostControl("null")).toBeNull();
     expect(parseHostControl('{"t":"hello","platform":"macos"}')).toBeNull();
@@ -77,5 +94,11 @@ describe("encodeViewerControl", () => {
     expect(
       encodeViewerControl({ t: "viewport", w: 2048, h: 1536, dpr: 2 }),
     ).toBe('{"t":"viewport","w":2048,"h":1536,"dpr":2}');
+  });
+
+  it("quality を書く（SPEC.md §7.2）", () => {
+    expect(encodeViewerControl({ t: "quality", preset: "smooth" })).toBe(
+      '{"t":"quality","preset":"smooth"}',
+    );
   });
 });

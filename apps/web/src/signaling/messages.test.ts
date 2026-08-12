@@ -29,6 +29,14 @@ describe("parseHostMessage", () => {
     });
   });
 
+  it("error を読む。文言ではなくコードで届く（SPEC.md §11-7）", () => {
+    expect(parseHostMessage('{"t":"error","code":"token_expired"}')).toEqual({
+      t: "error",
+      code: "token_expired",
+      detail: null,
+    });
+  });
+
   it("未知の種別・壊れた JSON・型違いは null を返して捨てる", () => {
     expect(parseHostMessage('{"t":"unknown"}')).toBeNull();
     expect(parseHostMessage("{")).toBeNull();
@@ -40,8 +48,20 @@ describe("parseHostMessage", () => {
 
 describe("encodeViewerMessage", () => {
   it("hello を書く", () => {
+    expect(encodeViewerMessage({ t: "hello", token: "abc", display: 3 })).toBe(
+      '{"t":"hello","token":"abc","display":3}',
+    );
+  });
+
+  // 通ればホストは承認をやり直さない（SPEC.md §11-4）
+  it("再接続チケットを載せた hello を書く", () => {
     expect(
-      encodeViewerMessage({ t: "hello", token: "abc", display: 3 }),
-    ).toBe('{"t":"hello","token":"abc","display":3}');
+      encodeViewerMessage({
+        t: "hello",
+        token: "abc",
+        display: 3,
+        resume: "tick",
+      }),
+    ).toBe('{"t":"hello","token":"abc","display":3,"resume":"tick"}');
   });
 });

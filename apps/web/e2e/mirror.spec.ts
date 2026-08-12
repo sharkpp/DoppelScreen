@@ -229,7 +229,13 @@ test("ビューアの表示サイズに解像度が追従する", async ({ page 
 
     const report = await host.report(60_000);
     expect(report.serve?.capturedHeight).toBe(1440);
-    expect(report.serve?.frameHeight).toBe(1440);
+    // 送出解像度が落ちていないこと（`scaleResolutionDownBy` — SPEC.md §3.2）。
+    // ただし既定の `sharp` は 30fps 上限で、静止していれば 1 枚も送らない（SPEC.md §4.3）。
+    // そのとき outbound-rtp は解像度を持たないため、**0 は「落ちている」ではなく
+    // 「その 1 秒に frame が無かった」**。区別せずに 1440 を要求すると偶発的に落ちる
+    if (report.serve?.frameHeight) {
+      expect(report.serve.frameHeight).toBe(1440);
+    }
   } finally {
     await host.cleanup();
   }
@@ -303,6 +309,88 @@ test("トークンが違うと接続できない", async ({ page }) => {
 
     const report = await host.report(60_000);
     expect(report.serve?.viewerConnected).toBe(false);
+  } finally {
+    await host.cleanup();
+  }
+});
+
+/**
+ * 品質プリセット（SPEC.md §7.2）。ビューアが選び、ホストが当てる。
+ *
+ * 判定はホスト側の申告で行う。ボタンが光っただけでは、送出設定が変わった保証にならない。
+ */
+test("ビューアが選んだ画質がホストに届く", async ({ page }) => {
+  const host = new Host();
+  const handshake = await host.start(15);
+
+  try {
+    await page.goto(Host.viewerURL(handshake));
+    await expect
+      .poll(
+        () =>
+          page
+            .locator("#screen")
+            .evaluate((element: HTMLVideoElement) => element.videoWidth),
+        { message: "映像トラックが届きません", timeout: 30_000 },
+      )
+      .toBeGreaterThan(0);
+
+    // 既定は sharp（文字の可読性優先）
+    await page.locator("#controls button", { hasText: "なめらか" }).click();
+    await expect(page.locator("#status")).toContainText("画質");
+
+    const report = await host.report(60_000);
+    expect(report.serve?.quality).toBe("smooth");
+  } finally {
+    await host.cleanup();
+  }
+});
+
+/**
+ * 自動再接続（SPEC.md §11-4）。**承認をやり直さずに**戻ってくること。
+ *
+ * リロードは「ビューアが繋ぎ直す」経路そのものを通る。ホストは再接続チケットを見て
+ * 承認済みとして扱う（SPEC.md §5.2 の承認は、セッションに対して 1 回）。
+ */
+test("繋ぎ直しても承認なしで映像が戻る", async ({ page }) => {
+  const host = new Host();
+  const handshake = await host.start(25);
+
+  try {
+    const video = page.locator("#screen");
+    const width = () =>
+      video.evaluate((element: HTMLVideoElement) => element.videoWidth);
+
+    await page.goto(Host.viewerURL(handshake));
+    await expect
+      .poll(width, { message: "映像トラックが届きません", timeout: 30_000 })
+      .toBeGreaterThan(0);
+
+    // ホストが渡したチケットを持っていること。これが繋ぎ直しの鍵になる
+    const ticket = await page.evaluate(() =>
+      sessionStorage.getItem(
+        `doppelscreen.resume.${new URLSearchParams(location.search).get("d")}`,
+      ),
+    );
+    expect(ticket, "再接続チケットを受け取っていません").toBeTruthy();
+
+    // 同じタブで開き直す。sessionStorage は残るのでチケットを提示して戻る
+    await page.reload();
+    await expect
+      .poll(width, { message: "繋ぎ直しで映像が戻りません", timeout: 30_000 })
+      .toBeGreaterThan(0);
+
+    // 使い切りなので、戻ったあとは別のチケットになっている
+    const renewed = await page.evaluate(() =>
+      sessionStorage.getItem(
+        `doppelscreen.resume.${new URLSearchParams(location.search).get("d")}`,
+      ),
+    );
+    expect(renewed).toBeTruthy();
+    expect(renewed).not.toBe(ticket);
+
+    const report = await host.report(60_000);
+    expect(report.ok, report.error).toBe(true);
   } finally {
     await host.cleanup();
   }
