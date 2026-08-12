@@ -47,10 +47,14 @@ final class SessionController {
     private(set) var securePort: Int?
     /// 証明書を用意できなかった理由。HTTP だけで動いている状態を UI に出す
     private(set) var certificateError: String?
+    /// 現在の接続トークンと残り時間（SPEC.md §5.2）。UI の QR と URL はこれに追従する
+    private(set) var pairingSnapshot: PairingService.Snapshot
 
     let previewRenderer = PreviewRenderer()
-    /// M0 では起動ごとに固定。TTL と再生成は未実装（SPEC.md §5.2）
-    let token = PairingToken.generate()
+    /// トークンの発行・期限・検証。ネットワーク側のスレッドからも触られる
+    let pairing = PairingService()
+
+    var token: String { pairingSnapshot.token }
 
     /// エンコーダは画面をまたいで 1 つで足りる。画面ごとに作ると
     /// VideoToolbox のセッションも人数分増える
@@ -58,6 +62,8 @@ final class SessionController {
     private let server = LocalServer()
     private var pendingWork: Task<Void, Never>?
     private var displayObservation: Task<Void, Never>?
+    /// トークンの残り時間を数え、期限が来たら URL / QR を作り直す
+    private var pairingTicker: Task<Void, Never>?
     private var addresses: [NetworkInterface] = []
 
     var selectedDisplay: DisplayInfo? {
@@ -76,7 +82,37 @@ final class SessionController {
     var isServing: Bool { serverState == .running }
 
     init() {
+        pairingSnapshot = pairing.snapshot()
         observeDisplayConfiguration()
+    }
+
+    // MARK: - ペアリング（SPEC.md §5.2）
+
+    /// トークンを作り直す。QR を配り直したいときに人が押す
+    func regenerateToken() {
+        pairing.regenerate()
+        refreshPairing()
+    }
+
+    /// 待受中だけ回す。残り時間の表示と、期限が来たときの URL / QR の差し替えのため
+    private func startPairingTicker() {
+        pairingTicker?.cancel()
+        pairingTicker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                self?.refreshPairing()
+            }
+        }
+    }
+
+    private func refreshPairing() {
+        let snapshot = pairing.snapshot()
+        guard snapshot != pairingSnapshot else { return }
+        let rotated = snapshot.token != pairingSnapshot.token
+        pairingSnapshot = snapshot
+        // トークンが変わったら URL も QR も別物になる
+        if rotated { rebuildEndpoints() }
     }
 
     // MARK: - 権限
@@ -149,7 +185,9 @@ final class SessionController {
     }
 
     private func makeStream(for display: DisplayInfo) -> DisplayStream {
-        let stream = DisplayStream(display: display, factory: factory, preview: previewRenderer)
+        let stream = DisplayStream(
+            display: display, factory: factory, preview: previewRenderer, pairing: pairing
+        )
         // 画面が落ちたときは構成が変わっている可能性が高いので一覧を取り直す
         stream.onUnexpectedStop = { [weak self] _ in self?.refreshDisplays() }
         return stream
@@ -183,14 +221,16 @@ final class SessionController {
 
         do {
             let listening = try await server.start(
-                .init(token: token, identity: identity)
-            ) { [weak self] connection, display in
-                Task { @MainActor in self?.acceptViewer(connection, display: display) }
+                .init(pairing: pairing, identity: identity)
+            ) { [weak self] connection, admission in
+                Task { @MainActor in self?.acceptViewer(connection, admission: admission) }
             }
             serverPort = listening.port
             securePort = listening.securePort
             serverState = .running
+            refreshPairing()
             rebuildEndpoints()
+            startPairingTicker()
         } catch {
             let message = error.localizedDescription
             await performStopServing()
@@ -199,6 +239,8 @@ final class SessionController {
     }
 
     private func performStopServing() async {
+        pairingTicker?.cancel()
+        pairingTicker = nil
         for stream in streams { await stream.stop() }
         await server.stop()
         endpoints = []
@@ -234,15 +276,16 @@ final class SessionController {
 
     /// ビューアを担当の画面へ振り分ける。指定された画面が無ければ理由を返して切る
     /// （黙って別の画面を映すと、意図しない画面を配信することになる）。
-    private func acceptViewer(_ connection: SignalingConnection, display requested: CGDirectDisplayID?) {
+    private func acceptViewer(_ connection: SignalingConnection, admission: SignalingHandler.Admission) {
         // 画面が指定されていなければ主画面。指定されていて見つからなければ受け入れない
+        let requested = admission.display
         let target = if let requested { streams.first { $0.id == requested } } else { streams.first }
         guard let target else {
-            connection.send(.error(message: "指定された画面が見つかりません"))
+            connection.send(.error(code: "display_not_found"))
             connection.close()
             return
         }
-        target.request(connection)
+        target.request(connection, resumed: admission.resumed)
     }
 }
 

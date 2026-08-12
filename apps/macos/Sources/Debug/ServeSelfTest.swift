@@ -35,6 +35,8 @@ extension SelfTest {
         var packetSendMs: Double
         var targetBitrateMbps: Double
         var qualityLimitationReason: String
+        /// ビューアが選んだ品質プリセット（SPEC.md §7.2）
+        var quality: String
         var candidatePairs: [String]
     }
 
@@ -171,6 +173,7 @@ extension SelfTest {
             packetSendMs: statistics?.packetSendMs ?? 0,
             targetBitrateMbps: statistics?.targetBitrateMbps ?? 0,
             qualityLimitationReason: statistics?.qualityLimitationReason ?? "none",
+            quality: stream.quality.rawValue,
             candidatePairs: statistics?.candidatePairs ?? []
         )
 

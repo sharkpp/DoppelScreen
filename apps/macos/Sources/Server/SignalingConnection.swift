@@ -83,18 +83,31 @@ final class SignalingConnection: @unchecked Sendable {
 /// 認証（`hello` のトークン照合）を通ったものだけを `onAuthenticated` で外へ渡す。
 /// トークンが違えば理由を返して即切る（SPEC.md §5.2）。
 ///
+/// 照合そのものは `PairingService` が持つ（期限・失敗回数・レート制限）。ここは
+/// 「WebSocket のフレームを渡して、返ってきた判定どおりに切る」だけを受け持つ。
+///
 /// `hello` はビューアが開いた URL が指す画面（`?d=`）も運ぶ。振り分けは受け取り側に任せる。
 final class SignalingHandler: ChannelInboundHandler {
     typealias InboundIn = WebSocketFrame
     typealias OutboundOut = WebSocketFrame
 
-    private let token: String
-    private let onAuthenticated: @Sendable (SignalingConnection, CGDirectDisplayID?) -> Void
+    /// 認証を通ったビューア。振り分けと承認の要否を受け取り側が決める材料になる
+    struct Admission: Sendable {
+        var display: CGDirectDisplayID?
+        /// 再接続チケットで通った。承認済みとして扱ってよい（SPEC.md §11-4）
+        var resumed: Bool
+    }
+
+    private let pairing: PairingService
+    private let onAuthenticated: @Sendable (SignalingConnection, Admission) -> Void
     private var connection: SignalingConnection?
     private var authenticated = false
 
-    init(token: String, onAuthenticated: @escaping @Sendable (SignalingConnection, CGDirectDisplayID?) -> Void) {
-        self.token = token
+    init(
+        pairing: PairingService,
+        onAuthenticated: @escaping @Sendable (SignalingConnection, Admission) -> Void
+    ) {
+        self.pairing = pairing
         self.onAuthenticated = onAuthenticated
     }
 
@@ -131,19 +144,37 @@ final class SignalingHandler: ChannelInboundHandler {
         guard let signal = SignalingCodec.decodeViewerSignal(text) else { return }
 
         guard authenticated else {
-            guard case .hello(let presented, let display) = signal, presented == token else {
-                // 理由を届けてから切る。`channel` 経由で送ると close が先着して届かない
-                let channel = context.channel
-                write(.error(message: "接続トークンが正しくありません"), context: context)
-                    .whenComplete { _ in channel.close(promise: nil) }
+            guard case .hello(let presented, let display, let resume) = signal else {
+                reject(with: "invalid_token", context: context)
                 return
             }
-            authenticated = true
-            onAuthenticated(connection, display)
+
+            // 一度承認されたビューアの繋ぎ直し。接続トークンの期限とは独立している
+            // （長く映しているうちにトークンが回っても切れないようにするため）
+            if let resume, pairing.redeemResumeTicket(resume, for: display) {
+                authenticated = true
+                onAuthenticated(connection, Admission(display: display, resumed: true))
+                return
+            }
+
+            let verdict = pairing.verify(presented, from: connection.remoteDescription)
+            guard let code = verdict.errorCode else {
+                authenticated = true
+                onAuthenticated(connection, Admission(display: display, resumed: false))
+                return
+            }
+            reject(with: code, context: context)
             return
         }
 
         connection.deliver(signal)
+    }
+
+    /// 理由を届けてから切る。`channel` 経由で送ると close が先着して届かない
+    private func reject(with code: String, context: ChannelHandlerContext) {
+        let channel = context.channel
+        write(.error(code: code), context: context)
+            .whenComplete { _ in channel.close(promise: nil) }
     }
 
     private func write(_ signal: HostSignal, context: ChannelHandlerContext) -> EventLoopFuture<Void> {

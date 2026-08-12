@@ -33,9 +33,13 @@ enum HostControl: Sendable, Equatable {
     case hello(platform: String, display: ControlDisplay)
     /// 解像度変更・画面構成の変化
     case display(ControlDisplay)
+    /// 繋ぎ直すための使い切りチケット（SPEC.md §11-4）。承認の直後に 1 回
+    case resume(ticket: String, ttlMs: Int)
     /// 1 秒ごと
     case stats(fps: Double, bitrate: Double, encodeMs: Double)
-    case error(code: String, message: String)
+    /// 理由は**コード**で送る。文言はビューアが自分の言語で出す（SPEC.md §11-7）。
+    /// `detail` は OS 由来の説明など、コードにできない補足だけに使う
+    case error(code: String, detail: String? = nil)
 }
 
 /// ビューア → ホスト
@@ -43,6 +47,8 @@ enum ViewerControl: Sendable, Equatable {
     /// 表示領域が変わったとき（初回・リサイズ・回転・フルスクリーン切替）。
     /// ホストはこれに合わせて符号化解像度を決める（SPEC.md §7.1）
     case viewport(width: Int, height: Int, dpr: Double)
+    /// 品質プリセットの切り替え（SPEC.md §7.2）
+    case quality(QualityPreset)
 }
 
 enum ControlCodec {
@@ -66,6 +72,12 @@ enum ControlCodec {
                 height: height,
                 dpr: (object["dpr"] as? NSNumber)?.doubleValue ?? 1
             )
+        case "quality":
+            // 知らないプリセットは捨てる。当てられない値で現状を壊さない
+            guard let name = object["preset"] as? String, let preset = QualityPreset(rawValue: name) else {
+                return nil
+            }
+            return .quality(preset)
         default:
             return nil
         }
@@ -77,15 +89,17 @@ enum ControlCodec {
             ["t": "hello", "platform": platform, "display": encode(display)]
         case .display(let display):
             encode(display).merging(["t": "display"]) { _, new in new }
+        case .resume(let ticket, let ttlMs):
+            ["t": "resume", "ticket": ticket, "ttlMs": ttlMs]
         case .stats(let fps, let bitrate, let encodeMs):
             ["t": "stats", "fps": fps, "bitrate": bitrate, "encodeMs": encodeMs]
-        case .error(let code, let message):
-            ["t": "error", "code": code, "message": message]
+        case .error(let code, let detail):
+            ["t": "error", "code": code, "detail": detail as Any? ?? NSNull()]
         }
 
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]),
               let text = String(data: data, encoding: .utf8)
-        else { return #"{"t":"error","code":"encode_failed","message":"encode failed"}"# }
+        else { return #"{"t":"error","code":"encode_failed"}"# }
         return text
     }
 

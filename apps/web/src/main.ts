@@ -1,5 +1,11 @@
 import "./style.css";
-import { measureViewport } from "./control";
+import {
+  measureViewport,
+  QUALITY_PRESETS,
+  type QualityPreset,
+} from "./control";
+import { describeError } from "./errors";
+import { t } from "./generated/strings";
 import { format, summarize, type Sample, type StatsEntry } from "./latency";
 import { ViewerSession, type SessionState } from "./session";
 import { fetchSecurePort, secureURL } from "./signaling/secure";
@@ -7,16 +13,21 @@ import { fetchSecurePort, secureURL } from "./signaling/secure";
 const video = document.querySelector<HTMLVideoElement>("#screen")!;
 const status = document.querySelector<HTMLDivElement>("#status")!;
 const stats = document.querySelector<HTMLDivElement>("#stats")!;
+const controls = document.querySelector<HTMLDivElement>("#controls")!;
 
 let hideTimer: number | undefined;
 
 /** 数秒でフェードアウトさせ、映像以外を画面に残さない（SPEC.md §8.2） */
 function show(message: string, autoHide: boolean): void {
-  status.textContent = message;
+  status.replaceChildren(message);
   status.hidden = false;
+  controls.hidden = false;
   window.clearTimeout(hideTimer);
   if (autoHide)
-    hideTimer = window.setTimeout(() => (status.hidden = true), 2500);
+    hideTimer = window.setTimeout(() => {
+      status.hidden = true;
+      controls.hidden = true;
+    }, 2500);
 }
 
 /** HTTPS 経路へのワンタップ遷移。トークンは fragment のまま引き継ぐ（SPEC.md §5.3） */
@@ -26,32 +37,35 @@ async function offerSecureRoute(reason: string): Promise<void> {
     show(reason, false);
     return;
   }
-  status.hidden = false;
-  status.textContent = `${reason}\n`;
+  show(`${reason}\n`, false);
   const link = document.createElement("a");
   link.href = url;
-  link.textContent = "HTTPS で開き直す";
+  link.textContent = t.secure.open;
   status.append(link);
 }
 
 function describe(state: SessionState): { message: string; autoHide: boolean } {
   switch (state.name) {
     case "connecting":
-      return { message: "ホストへ接続しています…", autoHide: false };
+      return { message: t.status.connecting, autoHide: false };
     case "awaitingApproval":
-      return {
-        message: "ホストでの承認を待っています…",
-        autoHide: false,
-      };
+      return { message: t.status.awaitingApproval, autoHide: false };
     case "negotiating":
-      return { message: "映像を準備しています…", autoHide: false };
+      return { message: t.status.negotiating, autoHide: false };
     case "streaming":
       return {
-        message: displayName ? `${displayName} に接続` : "接続しました",
+        message: displayName
+          ? t.status.connectedTo({ display: displayName })
+          : t.status.connected,
         autoHide: true,
       };
+    case "reconnecting":
+      return { message: t.status.reconnecting, autoHide: false };
     case "closed":
-      return { message: state.reason, autoHide: false };
+      return {
+        message: describeError(state.code, state.detail),
+        autoHide: false,
+      };
   }
 }
 
@@ -67,13 +81,13 @@ const session = new ViewerSession({
       reachedHost = true;
     const { message, autoHide } = describe(state);
     show(message, autoHide);
+    // 諦めた状態からは人が押して戻せるようにする
+    if (state.name === "closed") appendRetry();
     if (streaming) void keepAwake();
   },
   onStream: (stream) => {
     video.srcObject = stream;
-    void video
-      .play()
-      .catch(() => show("画面をタップして再生してください", false));
+    void video.play().catch(() => show(t.status.tapToPlay, false));
   },
   onControl: (message) => {
     switch (message.t) {
@@ -81,27 +95,34 @@ const session = new ViewerSession({
       // （どの画面を映しているかは、複数の画面を配信できる以上、重要な情報）
       case "hello":
         displayName = message.display.name;
-        if (streaming) show(`${displayName} に接続`, true);
+        if (streaming)
+          show(t.status.connectedTo({ display: displayName }), true);
         break;
       case "display":
         displayName = message.name;
-        if (streaming) show(`${displayName} に接続`, true);
+        if (streaming)
+          show(t.status.connectedTo({ display: displayName }), true);
         break;
-      case "error":
-        show(message.message, false);
-        break;
+      case "resume":
       case "stats":
+      case "error":
         break;
     }
   },
 });
 
+function appendRetry(): void {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = t.status.retry;
+  button.addEventListener("click", () => session.retry());
+  status.append(document.createElement("br"), button);
+}
+
 // 自己診断は 2 段構え（SPEC.md §5.3）。
 // 1. セキュアコンテキストでないと `RTCPeerConnection` を持たないブラウザがある
 if (typeof RTCPeerConnection === "undefined") {
-  void offerSecureRoute(
-    "このブラウザは WebRTC にセキュアな接続を必要とします。",
-  );
+  void offerSecureRoute(t.secure.required);
 } else {
   session.start();
   reportViewport();
@@ -109,7 +130,7 @@ if (typeof RTCPeerConnection === "undefined") {
   //    判定材料は「シグナリングが繋がったか」だけにする — 繋がった後は
   //    ホストの承認待ちで何分でも止まりうるので、時間では測れない（SPEC.md §5.2）
   window.setTimeout(() => {
-    if (!reachedHost) void offerSecureRoute("接続できません。");
+    if (!reachedHost) void offerSecureRoute(t.secure.unreachable);
   }, 5000);
 }
 
@@ -123,6 +144,39 @@ function reportViewport(): void {
 window.addEventListener("resize", reportViewport);
 document.addEventListener("fullscreenchange", reportViewport);
 window.screen.orientation?.addEventListener("change", reportViewport);
+
+// MARK: - 品質プリセット（SPEC.md §7.2）
+
+let quality: QualityPreset = "sharp";
+const qualityLabels: Record<QualityPreset, string> = {
+  sharp: t.quality.sharp,
+  balanced: t.quality.balanced,
+  smooth: t.quality.smooth,
+};
+
+const qualityButtons = QUALITY_PRESETS.map((preset) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = qualityLabels[preset];
+  button.addEventListener("click", (event) => {
+    // 映像のタップ（フルスクリーン切替）を巻き込まない
+    event.stopPropagation();
+    selectQuality(preset);
+  });
+  controls.append(button);
+  return [preset, button] as const;
+});
+
+function selectQuality(preset: QualityPreset, announce = true): void {
+  quality = preset;
+  session.setQuality(preset);
+  for (const [name, button] of qualityButtons)
+    button.classList.toggle("selected", name === preset);
+  if (announce) show(t.quality.changed({ preset: qualityLabels[preset] }), true);
+}
+
+// 初期値は選ばれた結果ではないので言わない。接続中の案内を上書きしてしまう
+selectQuality(quality, false);
 
 // MARK: - モニタとしての振る舞い
 
@@ -140,6 +194,20 @@ video.addEventListener("click", () => {
   if (document.fullscreenElement) void document.exitFullscreen();
   else void document.documentElement.requestFullscreen().catch(() => {});
 });
+
+// 触ったら操作 UI を出す。数秒でまた消える
+video.addEventListener("pointermove", () => {
+  if (!streaming) return;
+  show(
+    displayName
+      ? t.status.connectedTo({ display: displayName })
+      : t.status.connected,
+    true,
+  );
+});
+
+// ページを離れるときは繋ぎ直しを止める。閉じたタブが再接続を試み続けない
+window.addEventListener("pagehide", () => session.stop());
 
 // MARK: - 遅延計測オーバーレイ（SPEC.md §3.3）
 

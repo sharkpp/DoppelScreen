@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// メインウィンドウの識別子。`MenuBarExtra` から開き直すために UI 側が持つ
+enum MainWindow {
+    static let id = "main"
+}
+
 struct MenuBarView: View {
     let session: SessionController
     @Environment(\.openWindow) private var openWindow
@@ -23,12 +28,12 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button("ウィンドウを表示") {
+            Button(L10n.Menu.showWindow) {
                 openWindow(id: MainWindow.id)
                 NSApp.activate(ignoringOtherApps: true)
             }
 
-            Button("DoppelScreen を終了") {
+            Button(L10n.Menu.quit) {
                 NSApp.terminate(nil)
             }
         }
@@ -43,13 +48,13 @@ struct MenuBarView: View {
 
     private var statusText: String {
         let requests = session.approvalRequests.count
-        if requests > 0 { return "\(requests) 件の接続要求" }
+        if requests > 0 { return L10n.Menu.requests(count: String(requests)) }
 
         return switch session.serverState {
-        case .idle: "停止中"
-        case .starting: "開始中…"
-        case .running: "待受中（\(session.streams.filter(\.isActive).count) 画面を配信）"
-        case .failed: "エラー"
+        case .idle: L10n.Menu.stopped
+        case .starting: L10n.Menu.starting
+        case .running: L10n.Menu.serving(count: String(session.streams.filter(\.isActive).count))
+        case .failed: L10n.Menu.failed
         }
     }
 }

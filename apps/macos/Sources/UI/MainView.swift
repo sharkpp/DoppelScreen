@@ -63,14 +63,12 @@ struct MainView: View {
     }
 
     private var previewPlaceholder: String? {
-        guard let stream = session.selectedStream else { return "ディスプレイが見つかりません" }
+        guard let stream = session.selectedStream else { return L10n.Preview.noDisplay }
         return switch stream.state {
         case .streaming: nil
-        case .idle: session.isServing
-            ? "URL を開いたビューアからの接続を待っています"
-            : "「配信を開始」で待受を始めます"
-        case .awaitingApproval: "接続要求を承認するとここに映ります"
-        case .starting: "接続しています…"
+        case .idle: session.isServing ? L10n.Preview.waitingViewer : L10n.Preview.notServing
+        case .awaitingApproval: L10n.Preview.awaitingApproval
+        case .starting: L10n.Preview.connecting
         case .failed(let reason): reason
         }
     }
@@ -78,7 +76,7 @@ struct MainView: View {
     private var controlBar: some View {
         HStack(spacing: 12) {
             // 選ぶのはプレビューに映す画面。配信そのものは画面ごとに独立している
-            Picker("プレビュー", selection: Binding(
+            Picker(L10n.Control.preview, selection: Binding(
                 get: { session.selectedDisplayID },
                 set: { session.selectDisplay($0) }
             )) {
@@ -92,13 +90,13 @@ struct MainView: View {
 
             switch session.serverState {
             case .idle, .failed:
-                Button("配信を開始") { session.startServing() }
+                Button(L10n.Control.start) { session.startServing() }
                     .buttonStyle(.borderedProminent)
                     .disabled(session.displays.isEmpty)
             case .starting:
                 ProgressView().controlSize(.small)
             case .running:
-                Button("停止") { session.stopServing() }
+                Button(L10n.Control.stop) { session.stopServing() }
             }
 
             Spacer()
@@ -113,17 +111,20 @@ struct MainView: View {
     private var statusLabel: some View {
         switch session.serverState {
         case .idle:
-            Text("停止中").foregroundStyle(.secondary)
+            Text(L10n.Menu.stopped).foregroundStyle(.secondary)
         case .starting:
-            Text("開始中…").foregroundStyle(.secondary)
+            Text(L10n.Menu.starting).foregroundStyle(.secondary)
         case .running:
             let requests = session.approvalRequests.count
             if requests > 0 {
-                Text("\(requests) 件の接続要求").foregroundStyle(.orange)
+                Text(L10n.Status.requests(count: String(requests))).foregroundStyle(.orange)
             } else {
-                Text("\(session.streams.filter(\.isActive).count) / \(session.streams.count) 画面を配信中")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                Text(L10n.Status.streaming(
+                    active: String(session.streams.filter(\.isActive).count),
+                    total: String(session.streams.count)
+                ))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
             }
         case .failed(let message):
             Text(message)

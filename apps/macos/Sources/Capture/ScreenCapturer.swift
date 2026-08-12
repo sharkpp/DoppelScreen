@@ -33,7 +33,7 @@ final class ScreenCapturer: NSObject, @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .displayNotFound(let id):
-                "ディスプレイ \(id) が見つかりません"
+                L10n.Failure.displayNotFound(id: String(id))
             }
         }
     }

@@ -74,3 +74,45 @@ body {
   margin-top: 6px;
   color: #6cf;
 }
+
+/* 画質の切り替え（SPEC.md §7.2）。映像の合成には触らない別レイヤに置く */
+#controls {
+  position: fixed;
+  right: 12px;
+  bottom: 6vh;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.72);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  transition: opacity 0.4s ease;
+}
+
+/* 映像以外を画面に残さない（SPEC.md §8.2） */
+#controls[hidden] {
+  display: flex;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#controls button,
+#status button {
+  appearance: none;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+#controls button.selected {
+  background: rgb(255 255 255 / 0.9);
+  color: #000;
+}
+
+#status button {
+  margin-top: 6px;
+}

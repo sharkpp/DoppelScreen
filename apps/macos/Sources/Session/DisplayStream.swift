@@ -37,12 +37,16 @@ final class DisplayStream {
     private(set) var streamStatistics: PeerTransport.Statistics?
     /// 実際に動いているキャプチャの構成。解像度追従の突き合わせに使う
     private(set) var activeConfiguration: ScreenCapturer.Configuration?
+    /// ビューアが選んだ品質プリセット（SPEC.md §7.2）。接続ごとに既定へ戻す
+    private(set) var quality: QualityPreset = .standard
 
     /// ストリームが自発的に落ちたときの通知。画面構成が変わっている可能性が高い
     var onUnexpectedStop: (@MainActor (String) -> Void)?
 
     private let capturer = ScreenCapturer()
     private let pipeline: VideoPipeline
+    /// 再接続チケットの発行元（SPEC.md §11-4）
+    private let pairing: PairingService
     private var transport: PeerTransport?
     /// 承認待ちのビューア。承認するまで WebRTC は張らない
     private var pending: SignalingConnection?
@@ -55,9 +59,15 @@ final class DisplayStream {
     /// 「UI の表示と実際に動いているストリームが食い違う」
     private var pendingWork: Task<Void, Never>?
 
-    init(display: DisplayInfo, factory: RTCPeerConnectionFactory, preview: PreviewRenderer) {
+    init(
+        display: DisplayInfo,
+        factory: RTCPeerConnectionFactory,
+        preview: PreviewRenderer,
+        pairing: PairingService
+    ) {
         id = display.id
         self.display = display
+        self.pairing = pairing
         pipeline = VideoPipeline(factory: factory, trackID: "screen-\(display.id)")
 
         let displayID = display.id
@@ -90,8 +100,12 @@ final class DisplayStream {
 
     // MARK: - 接続の受け入れ
 
-    /// ビューアが繋いできた。承認を待つ状態にするだけで、まだ何も撮らない（SPEC.md §5.2）
-    func request(_ connection: SignalingConnection) {
+    /// ビューアが繋いできた。承認を待つ状態にするだけで、まだ何も撮らない（SPEC.md §5.2）。
+    ///
+    /// `resumed` は再接続チケットで通ってきた場合（SPEC.md §11-4）。**一度承認したビューアが
+    /// 繋ぎ直しただけ**なので、承認をやり直さずに再開する。これがないとネットワークが
+    /// 一瞬切れるたびに人がボタンを押すことになり、自動再接続が意味をなさない。
+    func request(_ connection: SignalingConnection, resumed: Bool = false) {
         disconnect()
         pending = connection
         state = .awaitingApproval(connection.remoteDescription)
@@ -99,6 +113,12 @@ final class DisplayStream {
         // 承認を待っている間にビューアが諦めることがある
         connection.onClose { [weak self] in
             Task { @MainActor in self?.handlePendingClosed(connection) }
+        }
+
+        guard !resumed else {
+            log.info("viewer resumed on display \(self.id): \(connection.remoteDescription, privacy: .public)")
+            approve()
+            return
         }
         log.info("viewer awaiting approval on display \(self.id): \(connection.remoteDescription, privacy: .public)")
     }
@@ -113,12 +133,15 @@ final class DisplayStream {
     func reject() {
         guard let connection = pending else { return }
         pending = nil
-        connection.send(.error(message: "ホストが接続を承認しませんでした"))
+        connection.send(.error(code: "rejected"))
         connection.close()
         state = .idle
     }
 
+    /// 人が「切断」を押したときと、配信をやめるときに呼ぶ。
+    /// **発行済みの再接続チケットを無効にする** — 切ったつもりのビューアが黙って戻ってきてはいけない
     func disconnect() {
+        pairing.revokeResumeTickets(for: id)
         followWork?.cancel()
         followWork = nil
         stopStatisticsPolling()
@@ -128,6 +151,8 @@ final class DisplayStream {
         transport = nil
         viewport = nil
         streamStatistics = nil
+        // 次に繋いでくるのは別のビューアかもしれない。プリセットは持ち越さない
+        quality = .standard
         state = .idle
         enqueue { [weak self] in await self?.performStopCapture() }
     }
@@ -147,7 +172,7 @@ final class DisplayStream {
             activeConfiguration = configuration
         } catch {
             state = .failed(error.localizedDescription)
-            connection.send(.error(message: error.localizedDescription))
+            connection.send(.error(code: "capture_failed", detail: error.localizedDescription))
             connection.close()
             return
         }
@@ -169,7 +194,7 @@ final class DisplayStream {
                 Task { @MainActor in self?.handle(message) }
             }
 
-            try await transport.start(track: pipeline.track)
+            try await transport.start(track: pipeline.track, quality: quality)
             startStatisticsPolling()
         } catch {
             state = .failed(error.localizedDescription)
@@ -212,7 +237,7 @@ final class DisplayStream {
 
     private func handleUnexpectedStop(_ message: String) {
         state = .failed(message)
-        transport?.send(.error(code: "capture_stopped", message: message))
+        transport?.send(.error(code: "capture_stopped", detail: message))
         transport?.close()
         transport = nil
         stopStatisticsPolling()
@@ -224,6 +249,12 @@ final class DisplayStream {
 
     private func sendHello() {
         transport?.send(.hello(platform: "macos", display: ControlDisplay(display)))
+        // 繋ぎ直すための使い切りチケットを渡す（SPEC.md §11-4）。
+        // 接続トークンの期限とは独立させる — 長く映しているうちにトークンが回っても切れない
+        transport?.send(.resume(
+            ticket: pairing.issueResumeTicket(for: id),
+            ttlMs: Int(pairing.resumeLifetime.components.seconds) * 1000
+        ))
     }
 
     private func handle(_ message: ViewerControl) {
@@ -231,6 +262,32 @@ final class DisplayStream {
         case .viewport(let width, let height, _):
             viewport = (width, height)
             scheduleResolutionFollow()
+        case .quality(let preset):
+            applyQuality(preset)
+        }
+    }
+
+    /// 品質プリセットの切り替え（SPEC.md §7.2）。
+    ///
+    /// 送出側（`RTCRtpSender`）とキャプチャ側の両方に当てる。上限 fps をエンコーダだけで
+    /// 絞ると、撮ってから捨てるぶんの CPU と電力が無駄になる。
+    /// 解像度追従（§7.1）とは独立していて、こちらは fps とビットレートだけを動かす。
+    private func applyQuality(_ preset: QualityPreset) {
+        guard preset != quality else { return }
+        quality = preset
+        transport?.apply(preset)
+
+        guard let active = activeConfiguration, active.maximumFrameRate != preset.maxFramerate else { return }
+        var desired = active
+        desired.maximumFrameRate = preset.maxFramerate
+        enqueue { [weak self] in
+            do {
+                try await self?.capturer.update(desired)
+                self?.activeConfiguration = desired
+                log.info("quality preset applied: \(preset.rawValue)")
+            } catch {
+                log.error("failed to apply quality preset: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -267,7 +324,12 @@ final class DisplayStream {
     private func configuration(width: Int, height: Int) -> ScreenCapturer.Configuration {
         // 符号化できない解像度を撮っても意味がない。縮小は SCStream に任せる
         let size = VideoEncoding.encodableSize(width: width, height: height)
-        return ScreenCapturer.Configuration(displayID: id, width: size.width, height: size.height)
+        return ScreenCapturer.Configuration(
+            displayID: id,
+            width: size.width,
+            height: size.height,
+            maximumFrameRate: quality.maxFramerate
+        )
     }
 
     // MARK: - 統計

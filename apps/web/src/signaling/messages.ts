@@ -14,12 +14,17 @@ export type IceCandidateMessage = {
 export type HostMessage =
   | { t: "offer"; sdp: string }
   | IceCandidateMessage
-  | { t: "error"; message: string };
+  /** 理由は**コード**で届く。文言はビューアが自分の言語で出す（`errors.ts`） */
+  | { t: "error"; code: string; detail: string | null };
 
 /** ビューア → ホスト */
 export type ViewerMessage =
-  /** 最初の 1 通。トークンと、URL が指す画面を運ぶ（SPEC.md §5.2） */
-  | { t: "hello"; token: string; display: number | null }
+  /**
+   * 最初の 1 通。トークンと、URL が指す画面を運ぶ（SPEC.md §5.2）。
+   * `resume` は一度承認された接続を繋ぎ直すためのチケット（SPEC.md §11-4）。
+   * これが通ればホストは承認をやり直さない
+   */
+  | { t: "hello"; token: string; display: number | null; resume?: string }
   | { t: "answer"; sdp: string }
   | IceCandidateMessage;
 
@@ -45,8 +50,12 @@ export function parseHostMessage(raw: string): HostMessage | null {
     case "candidate":
       return parseCandidate(message);
     case "error":
-      return typeof message.message === "string"
-        ? { t: "error", message: message.message }
+      return typeof message.code === "string"
+        ? {
+            t: "error",
+            code: message.code,
+            detail: typeof message.detail === "string" ? message.detail : null,
+          }
         : null;
     default:
       return null;

@@ -1,9 +1,5 @@
 import SwiftUI
 
-enum MainWindow {
-    static let id = "main"
-}
-
 /// 起動引数で通常のアプリと検証モードを振り分ける（`SelfTest`）。
 @main
 enum DoppelScreenMain {

@@ -111,8 +111,8 @@ final class WebRTCLoopback: @unchecked Sendable {
 
         // 配信経路（`PeerTransport`）と同じ符号化方針を通す。
         // ここが違うと、ループバックで確認した解像度が実配信と一致しなくなる
-        VideoEncoding.apply(to: sender)
-        if let videoSender { VideoEncoding.apply(to: videoSender) }
+        VideoEncoding.apply(QualityPreset.standard, to: sender)
+        if let videoSender { VideoEncoding.apply(QualityPreset.standard, to: videoSender) }
 
         attachRenderer()
     }

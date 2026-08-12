@@ -14,7 +14,7 @@ struct OnboardingView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
 
-            Text("画面収録の許可が必要です")
+            Text(L10n.Onboarding.title)
                 .font(.title2.weight(.semibold))
 
             Text(guidance)
@@ -24,23 +24,23 @@ struct OnboardingView: View {
 
             HStack(spacing: 12) {
                 if session.hasRequestedPermissionBefore {
-                    Button("システム設定を開く") {
+                    Button(L10n.Onboarding.openSettings) {
                         ScreenRecordingPermission.openSystemSettings()
                     }
                     .buttonStyle(.borderedProminent)
 
-                    Button("再起動して反映") {
+                    Button(L10n.Onboarding.relaunch) {
                         ScreenRecordingPermission.relaunch()
                     }
                 } else {
-                    Button("許可を求める") {
+                    Button(L10n.Onboarding.request) {
                         session.requestPermission()
                     }
                     .buttonStyle(.borderedProminent)
                 }
             }
 
-            Text("現在の状態: 未許可（1 秒ごとに再確認しています）")
+            Text(L10n.Onboarding.checking)
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
         }
@@ -49,19 +49,6 @@ struct OnboardingView: View {
     }
 
     private var guidance: String {
-        if session.hasRequestedPermissionBefore {
-            """
-            システム設定の「プライバシーとセキュリティ  ›  画面収録」で DoppelScreen を許可してください。
-            許可しても実行中のアプリには反映されないため、そのあと再起動が必要です。
-
-            すでに許可済みに見えるのに反映されない場合は、リストから DoppelScreen を一度削除して\
-            追加し直してください（開発ビルドは署名が毎回変わるため、別アプリとして扱われます）。
-            """
-        } else {
-            """
-            DoppelScreen はこの Mac の画面を配信します。
-            「許可を求める」を押し、表示されるダイアログで許可してください。
-            """
-        }
+        session.hasRequestedPermissionBefore ? L10n.Onboarding.guidanceAgain : L10n.Onboarding.guidanceFirst
     }
 }

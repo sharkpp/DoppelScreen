@@ -15,21 +15,31 @@ export type ControlDisplay = {
   scale: number;
 };
 
+/** 品質プリセット（SPEC.md §7.2）。ビューアが選び、ホストが当てる */
+export const QUALITY_PRESETS = ["sharp", "balanced", "smooth"] as const;
+export type QualityPreset = (typeof QUALITY_PRESETS)[number];
+
 /** ホスト → ビューア */
 export type HostControl =
   | { t: "hello"; platform: string; display: ControlDisplay }
   | ({ t: "display" } & ControlDisplay)
+  /** 繋ぎ直すための使い切りチケット（SPEC.md §11-4） */
+  | { t: "resume"; ticket: string; ttlMs: number }
   | { t: "stats"; fps: number; bitrate: number; encodeMs: number }
-  | { t: "error"; code: string; message: string };
+  /** 理由は**コード**で届く。文言はビューアが自分の言語で出す（`errors.ts`） */
+  | { t: "error"; code: string; detail: string | null };
 
-/** ビューア → ホスト */
-export type ViewerControl = {
+/** 表示できる領域の**物理ピクセル**数。ホストはこれに合わせて符号化解像度を決める（SPEC.md §7.1） */
+export type ViewportMessage = {
   t: "viewport";
-  /** 表示できる領域の**物理ピクセル**数。ホストはこれに合わせて符号化解像度を決める（SPEC.md §7.1） */
   w: number;
   h: number;
   dpr: number;
 };
+
+/** ビューア → ホスト */
+export type ViewerControl =
+  ViewportMessage | { t: "quality"; preset: QualityPreset };
 
 /**
  * ホストからの制御メッセージを解釈する。解釈できないものは `null` を返して黙って捨てる
@@ -63,12 +73,17 @@ export function parseHostControl(raw: string): HostControl | null {
         bitrate: typeof message.bitrate === "number" ? message.bitrate : 0,
         encodeMs: typeof message.encodeMs === "number" ? message.encodeMs : 0,
       };
+    case "resume":
+      return typeof message.ticket === "string" &&
+        typeof message.ttlMs === "number"
+        ? { t: "resume", ticket: message.ticket, ttlMs: message.ttlMs }
+        : null;
     case "error":
-      return typeof message.message === "string"
+      return typeof message.code === "string"
         ? {
             t: "error",
-            code: typeof message.code === "string" ? message.code : "unknown",
-            message: message.message,
+            code: message.code,
+            detail: typeof message.detail === "string" ? message.detail : null,
           }
         : null;
     default:
@@ -111,7 +126,7 @@ export function measureViewport(view: {
   innerWidth: number;
   innerHeight: number;
   devicePixelRatio: number;
-}): ViewerControl {
+}): ViewportMessage {
   const dpr = view.devicePixelRatio > 0 ? view.devicePixelRatio : 1;
   return {
     t: "viewport",

@@ -1,8 +1,8 @@
 import Foundation
 
-/// 接続トークン（SPEC.md §5.2）。
+/// 接続トークンの文字列そのもの（SPEC.md §5.2）。
 ///
-/// M0 では起動ごとに 1 つ作って固定する。TTL・失効・再生成は M2 の `PairingService` で扱う。
+/// 発行・期限・検証は `PairingService` が持つ。ここは値の作り方だけを受け持つ。
 enum PairingToken {
     /// 紛らわしい文字（i / l / o / u）を外した 32 文字。手入力を前提にする
     private static let alphabet = Array("0123456789abcdefghjkmnpqrstvwxyz")

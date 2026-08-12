@@ -24,6 +24,8 @@ final class PeerTransport: @unchecked Sendable {
     private let onStateChange: @Sendable (UUID, State) -> Void
     /// 制御チャネル（SPEC.md §7）。`start(track:)` で張る
     private var control: ControlChannel?
+    /// 送出側。品質プリセットの当て先（SPEC.md §7.2）
+    private var sender: RTCRtpSender?
 
     /// 接続元の表示用
     let remoteDescription: String
@@ -62,8 +64,8 @@ final class PeerTransport: @unchecked Sendable {
         observer.onIceConnectionState = { [weak self] state in
             switch state {
             case .connected, .completed: self?.report(.streaming)
-            case .failed: self?.report(.closed("接続に失敗しました"))
-            case .disconnected: self?.report(.closed("ビューアとの接続が切れました"))
+            case .failed: self?.report(.closed(L10n.Failure.peerFailed))
+            case .disconnected: self?.report(.closed(L10n.Failure.viewerDisconnected))
             default: break
             }
         }
@@ -75,8 +77,8 @@ final class PeerTransport: @unchecked Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .peerConnectionUnavailable: "PeerConnection を生成できません"
-            case .controlChannelUnavailable: "制御チャネルを生成できません"
+            case .peerConnectionUnavailable: L10n.Failure.peerUnavailable
+            case .controlChannelUnavailable: L10n.Failure.controlUnavailable
             }
         }
     }
@@ -91,13 +93,19 @@ final class PeerTransport: @unchecked Sendable {
         control?.send(message)
     }
 
+    /// 品質プリセットを当てる（SPEC.md §7.2）。送出中に呼び直せる
+    func apply(_ preset: QualityPreset) {
+        VideoEncoding.apply(preset, to: peer)
+        if let sender { VideoEncoding.apply(preset, to: sender) }
+    }
+
     /// トラックを載せて offer を送る。以降はビューアからの answer / candidate を待つ。
-    func start(track: RTCVideoTrack) async throws {
+    func start(track: RTCVideoTrack, quality: QualityPreset) async throws {
         connection.onSignal { [weak self] signal in
             Task { await self?.handle(signal) }
         }
         connection.onClose { [weak self] in
-            self?.report(.closed("ビューアが切断しました"))
+            self?.report(.closed(L10n.Failure.viewerLeft))
         }
 
         // 転送専用。受信する気がないことを SDP に明記する（SPEC.md §1.2）。
@@ -105,7 +113,7 @@ final class PeerTransport: @unchecked Sendable {
         let transceiverInit = RTCRtpTransceiverInit()
         transceiverInit.direction = .sendOnly
         transceiverInit.streamIds = ["screen"]
-        let sender = peer.addTransceiver(with: track, init: transceiverInit)?.sender
+        sender = peer.addTransceiver(with: track, init: transceiverInit)?.sender
 
         // 制御チャネルは offer を作る前に張る。後から足すと再ネゴシエートが要る（SPEC.md §7）。
         // 既定で reliable / ordered
@@ -125,8 +133,7 @@ final class PeerTransport: @unchecked Sendable {
 
         // ローカル記述が入って初めて送出側のパラメータが確定する。
         // ここで潤沢なビットレートを与えないと、立ち上がりの推定で解像度が落ちる（SPEC.md §3.2）
-        VideoEncoding.apply(to: peer)
-        if let sender { VideoEncoding.apply(to: sender) }
+        apply(quality)
 
         connection.send(.offer(sdp: offer.sdp))
         log.info("offer sent to \(self.remoteDescription, privacy: .public)")
@@ -150,7 +157,7 @@ final class PeerTransport: @unchecked Sendable {
                 log.info("answer accepted")
             } catch {
                 log.error("failed to accept answer: \(error.localizedDescription, privacy: .public)")
-                report(.closed("answer を受け付けられませんでした"))
+                report(.closed(L10n.Failure.answerRejected))
             }
         case .candidate(let candidate):
             incoming.send(RTCIceCandidate(

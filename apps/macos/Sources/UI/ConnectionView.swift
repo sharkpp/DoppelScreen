@@ -5,24 +5,31 @@ import SwiftUI
 /// URL は画面ごとに分かれる（SPEC.md §5.2）。別々の画面の URL を別々の端末で開けば、
 /// 複数の画面を同時にミラーリングできる。
 ///
+/// **QR がペアリングの本体**で、URL 文字列は QR が読めない環境の代替として併記する。
+/// 既定は HTTP（証明書の警告が出ない）で、HTTPS も併せて出す（SPEC.md §5.3）。
+///
 /// 接続要求の承認もここで行う。**承認するまでその画面のキャプチャは始まらない。**
 struct ConnectionView: View {
     let session: SessionController
 
+    /// QR を出しているエンドポイント。1 つずつしか出さない — 並べると小さくなって読めない
+    @State private var expanded: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if session.endpoints.isEmpty {
-                Text("LAN のアドレスが見つかりません")
+                Text(L10n.Connection.noAddress)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
+                pairing
                 ForEach(session.streams, id: \.id) { stream in
                     section(for: stream)
                 }
             }
 
             if let certificateError = session.certificateError {
-                Text("HTTPS は使えません: \(certificateError)")
+                Text(L10n.Connection.certificateUnavailable(reason: certificateError))
                     .font(.footnote)
                     .foregroundStyle(.orange)
                     .lineLimit(2)
@@ -31,6 +38,31 @@ struct ConnectionView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quinary)
+    }
+
+    /// トークンの状態（SPEC.md §5.2）。期限は全画面で共通なので 1 か所に出す
+    private var pairing: some View {
+        HStack(spacing: 8) {
+            Text(L10n.Pairing.token(token: session.pairingSnapshot.token))
+                .font(.callout.monospaced())
+                .textSelection(.enabled)
+
+            let seconds = Int(session.pairingSnapshot.remaining.components.seconds)
+            Text(seconds > 0 ? L10n.Pairing.expires(seconds: String(seconds)) : L10n.Pairing.expired)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            if session.pairingSnapshot.regeneratedAfterFailures {
+                Text(L10n.Pairing.rejected)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            Spacer(minLength: 8)
+
+            Button(L10n.Pairing.regenerate) { session.regenerateToken() }
+                .controlSize(.small)
+        }
     }
 
     private func section(for stream: DisplayStream) -> some View {
@@ -56,6 +88,7 @@ struct ConnectionView: View {
         }
     }
 
+    @ViewBuilder
     private func row(interfaceName: String, url: String) -> some View {
         HStack(spacing: 8) {
             Text(interfaceName)
@@ -70,53 +103,96 @@ struct ConnectionView: View {
                 .truncationMode(.middle)
 
             Button {
+                expanded = expanded == url ? nil : url
+            } label: {
+                Image(systemName: "qrcode")
+            }
+            .buttonStyle(.borderless)
+            .help(expanded == url ? L10n.Connection.hideQR : L10n.Connection.showQR)
+
+            Button {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(url, forType: .string)
             } label: {
                 Image(systemName: "doc.on.doc")
             }
             .buttonStyle(.borderless)
-            .help("URL をコピー")
+            .help(L10n.Connection.copyUrl)
 
             Spacer(minLength: 0)
         }
+
+        if expanded == url {
+            qr(for: url)
+        }
+    }
+
+    /// QR にはトークンと画面を含む完全な URL が入る。手入力を不要にするのが目的（SPEC.md §5.2）
+    @ViewBuilder
+    private func qr(for url: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            if let image = QRCode.image(for: url, size: 180) {
+                Image(nsImage: image)
+                    // 補間するとモジュールの境界がぼけて読み取り率が落ちる
+                    .interpolation(.none)
+                    .frame(width: 180, height: 180)
+                    .padding(8)
+                    .background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+            Text(L10n.Connection.scanHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 200, alignment: .leading)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 64)
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
     private func status(for stream: DisplayStream) -> some View {
         switch stream.state {
         case .idle:
-            Text("ビューア未接続").font(.footnote).foregroundStyle(.secondary)
+            Text(L10n.Connection.idle).font(.footnote).foregroundStyle(.secondary)
 
         case .awaitingApproval(let address):
             // トークンだけでは接続を成立させない。ここが無人アクセスを防ぐ要（SPEC.md §5.2）
             HStack(spacing: 8) {
-                Text("\(address) から接続要求")
+                Text(L10n.Connection.request(address: address))
                     .font(.footnote)
                     .foregroundStyle(.orange)
-                Button("承認") { stream.approve() }
+                Button(L10n.Connection.approve) { stream.approve() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                Button("拒否") { stream.reject() }
+                Button(L10n.Connection.reject) { stream.reject() }
                     .controlSize(.small)
             }
 
         case .starting(let address):
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("\(address) と接続中").font(.footnote).foregroundStyle(.secondary)
+                Text(L10n.Connection.connecting(address: address))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
         case .streaming(let address):
             HStack(spacing: 8) {
-                Text("\(address) へ配信中").font(.footnote).foregroundStyle(.green)
+                Text(L10n.Connection.streaming(address: address))
+                    .font(.footnote)
+                    .foregroundStyle(.green)
                 // ビューアの表示サイズへ追従した実効解像度（SPEC.md §7.1）
                 if let configuration = stream.activeConfiguration {
                     Text("\(configuration.width)×\(configuration.height)")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                Button("切断") { stream.disconnect() }
+                // 画質はビューアが選ぶ（SPEC.md §7.2）。ホストは今の設定を映すだけ
+                Text(L10n.Connection.quality(preset: stream.quality.localizedName))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button(L10n.Connection.disconnect) { stream.disconnect() }
                     .buttonStyle(.borderless)
             }
 

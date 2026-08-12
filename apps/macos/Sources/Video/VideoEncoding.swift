@@ -7,15 +7,11 @@ import WebRTC
 /// ならないため、**推定の初期値ごと潤沢に与えて量子化を浅く保つ**。
 ///
 /// 解像度はビューアの表示サイズに追従させる（`followingSize`）。
-/// ビューアからの切り替え（品質プリセット、SPEC.md §7.2）は未実装。
+/// 上限 fps・上限ビットレート・劣化の方向はビューアが選ぶ（`QualityPreset`、SPEC.md §7.2）。
 enum VideoEncoding {
 
-    /// 立ち上がりで使わせる推定値。低い値から探らせない
-    static let startBitrateBps = 20_000_000
     /// 推定がここより下がらないようにする
     static let minBitrateBps = 5_000_000
-    static let maxBitrateBps = 40_000_000
-    static let maxFramerate = 60
 
     /// H.264 level 5.2 の最大フレームサイズ（マクロブロック数）。
     /// 3840×2160 は覆うが、5K（5120×2880）や 6K のディスプレイは超える。
@@ -77,25 +73,24 @@ enum VideoEncoding {
 
     /// 帯域推定そのものの範囲。`currentBitrateBps` は推定値を**その場で強制する**ため、
     /// 立ち上がりのランプアップと、それに伴う初期のダウンスケールが起きなくなる。
-    static func apply(to peer: RTCPeerConnection) {
+    static func apply(_ preset: QualityPreset, to peer: RTCPeerConnection) {
         peer.setBweMinBitrateBps(
             NSNumber(value: minBitrateBps),
-            currentBitrateBps: NSNumber(value: startBitrateBps),
-            maxBitrateBps: NSNumber(value: maxBitrateBps)
+            // 上限から始めさせる。低い値から探らせると、その間だけ解像度が落ちる
+            currentBitrateBps: NSNumber(value: preset.maxBitrateBps),
+            maxBitrateBps: NSNumber(value: preset.maxBitrateBps)
         )
     }
 
-    /// 解像度を維持し、足りなくなったら fps を落とす。ミラーリングでは文字の
-    /// 可読性が最優先で、ぼけた 60fps より鮮明な 30fps の方が役に立つ（SPEC.md §7.2）。
-    static func apply(to sender: RTCRtpSender) {
+    /// 上限 fps・上限ビットレート・劣化の方向をプリセットから当てる（SPEC.md §7.2）。
+    /// 送出中に呼び直せる — ビューアがプリセットを変えたときの反映経路でもある。
+    static func apply(_ preset: QualityPreset, to sender: RTCRtpSender) {
         let parameters = sender.parameters
-        parameters.degradationPreference = NSNumber(
-            value: RTCDegradationPreference.maintainResolution.rawValue
-        )
+        parameters.degradationPreference = NSNumber(value: preset.degradationPreference.rawValue)
         for encoding in parameters.encodings {
-            encoding.maxBitrateBps = NSNumber(value: maxBitrateBps)
+            encoding.maxBitrateBps = NSNumber(value: preset.maxBitrateBps)
             encoding.minBitrateBps = NSNumber(value: minBitrateBps)
-            encoding.maxFramerate = NSNumber(value: maxFramerate)
+            encoding.maxFramerate = NSNumber(value: preset.maxFramerate)
             // 実装既定のスケーリングに任せない。キャプチャした解像度をそのまま送る
             encoding.scaleResolutionDownBy = 1
         }

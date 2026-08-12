@@ -11,14 +11,20 @@ import Foundation
 enum HostSignal: Sendable, Equatable {
     case offer(sdp: String)
     case candidate(IceCandidate)
-    case error(message: String)
+    /// 理由は**コード**で送る。文言はビューアが自分の言語で出す — ビューアを見ている人の
+    /// 言語がホストの言語とは限らない（SPEC.md §11-7）。`detail` は OS 由来の説明など、
+    /// コードにできない補足だけに使う
+    case error(code: String, detail: String? = nil)
 }
 
 /// ビューア → ホスト
 enum ViewerSignal: Sendable, Equatable {
     /// 最初の 1 通。トークンと、URL が指す画面（`?d=`）をここで運ぶ（SPEC.md §5.2）。
-    /// 画面が省略された場合は、ホストが主画面を選ぶ
-    case hello(token: String, display: CGDirectDisplayID?)
+    /// 画面が省略された場合は、ホストが主画面を選ぶ。
+    ///
+    /// `resume` は一度承認されたビューアが繋ぎ直すときのチケット（SPEC.md §11-4）。
+    /// 通れば接続トークンの照合とホスト承認をどちらも省く
+    case hello(token: String, display: CGDirectDisplayID?, resume: String? = nil)
     case answer(sdp: String)
     case candidate(IceCandidate)
 }
@@ -38,7 +44,11 @@ enum SignalingCodec {
         switch type {
         case "hello":
             guard let token = object["token"] as? String else { return nil }
-            return .hello(token: token, display: (object["display"] as? NSNumber)?.uint32Value)
+            return .hello(
+                token: token,
+                display: (object["display"] as? NSNumber)?.uint32Value,
+                resume: object["resume"] as? String
+            )
         case "answer":
             guard let sdp = object["sdp"] as? String else { return nil }
             return .answer(sdp: sdp)
@@ -61,13 +71,13 @@ enum SignalingCodec {
                 "sdpMid": candidate.sdpMid as Any? ?? NSNull(),
                 "sdpMLineIndex": candidate.sdpMLineIndex as Any? ?? NSNull(),
             ]
-        case .error(let message):
-            ["t": "error", "message": message]
+        case .error(let code, let detail):
+            ["t": "error", "code": code, "detail": detail as Any? ?? NSNull()]
         }
 
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]),
               let text = String(data: data, encoding: .utf8)
-        else { return #"{"t":"error","message":"encode failed"}"# }
+        else { return #"{"t":"error","code":"encode_failed"}"# }
         return text
     }
 

@@ -19,7 +19,8 @@ final class LocalServer: @unchecked Sendable {
     struct Configuration {
         var preferredPort: Int = 8422
         var preferredSecurePort: Int = 8423
-        var token: String
+        /// トークンの発行と検証（SPEC.md §5.2）。期限が切れれば同じ待受のまま作り直される
+        var pairing: PairingService
         /// HTTPS 側の証明書。用意できなければ HTTP だけで待ち受ける
         var identity: SecIdentity?
     }
@@ -36,7 +37,7 @@ final class LocalServer: @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .viewerPageMissing:
-                "ビューアページがバンドルに含まれていません（apps/web のビルドを確認してください）"
+                L10n.Failure.viewerPageMissing
             }
         }
     }
@@ -52,16 +53,16 @@ final class LocalServer: @unchecked Sendable {
     /// 希望のポートが使われていたら空きポートへずらす。URL / QR には戻り値を使う。
     ///
     /// `onConnection` は認証を通ったビューアが接続したときに、ネットワーク側のスレッドから呼ばれる。
-    /// 第 2 引数はビューアが開いた URL が指す画面（SPEC.md §5.2）。
+    /// 第 2 引数はビューアが開いた URL が指す画面と、承認を省いてよいかどうか（SPEC.md §5.2 / §11-4）。
     @discardableResult
     func start(
         _ configuration: Configuration,
-        onConnection: @escaping @Sendable (SignalingConnection, CGDirectDisplayID?) -> Void
+        onConnection: @escaping @Sendable (SignalingConnection, SignalingHandler.Admission) -> Void
     ) async throws -> Listening {
         await stop()
 
         let html = try Self.loadViewerPage()
-        let token = configuration.token
+        let pairing = configuration.pairing
 
         // HTTPS のポートは HTML に埋め込まず `/config` で答える。
         // 「ホストはビルド済みの 1 ファイルしか知らない」という前提を崩さない
@@ -87,7 +88,7 @@ final class LocalServer: @unchecked Sendable {
                     upgradePipelineHandler: { channel, _ in
                         channel.eventLoop.makeCompletedFuture {
                             try channel.pipeline.syncOperations.addHandler(
-                                SignalingHandler(token: token, onAuthenticated: onConnection)
+                                SignalingHandler(pairing: pairing, onAuthenticated: onConnection)
                             )
                         }
                     }

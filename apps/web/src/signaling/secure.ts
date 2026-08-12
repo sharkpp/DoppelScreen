@@ -9,11 +9,17 @@
  * HTML へ埋め込ませると、ホストが成果物を書き換えることになる（docs/STACK.md §6.1）。
  */
 export function secureURL(
-  location: { protocol: string; hostname: string; hash: string },
+  location: {
+    protocol: string;
+    hostname: string;
+    search: string;
+    hash: string;
+  },
   securePort: number | null,
 ): string | null {
   if (location.protocol === "https:" || securePort === null) return null;
-  return `https://${location.hostname}:${securePort}/${location.hash}`;
+  // クエリごと引き継ぐ。`?d=` を落とすと、切り替えた先で別の画面が映る（SPEC.md §5.2）
+  return `https://${location.hostname}:${securePort}/${location.search}${location.hash}`;
 }
 
 export async function fetchSecurePort(): Promise<number | null> {
