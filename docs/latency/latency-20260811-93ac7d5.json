@@ -1,0 +1,18 @@
+{
+ "video": "PXL_20260811_142055586.mp4",
+ "source": {
+  "width": 1920,
+  "height": 1080,
+  "durationSeconds": 483.257833,
+  "containerFps": 29.96
+ },
+ "captureFps": 239.8,
+ "frameIntervalMs": 4.17,
+ "framesAnalyzed": 14483,
+ "framesUsable": 9481,
+ "medianMs": 67,
+ "minMs": 49,
+ "maxMs": 500,
+ "p10Ms": 50,
+ "p90Ms": 116
+}
