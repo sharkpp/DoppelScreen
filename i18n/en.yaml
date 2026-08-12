@@ -1,0 +1,119 @@
+# English. Keep every key and every `{placeholder}` that ja.yaml has.
+# Run `make i18n` after editing.
+
+host:
+  menu:
+    showWindow: Show Window
+    quit: Quit DoppelScreen
+    stopped: Stopped
+    starting: Starting…
+    serving: Listening ({count} display(s) streaming)
+    failed: Error
+    requests: "{count} connection request(s)"
+
+  onboarding:
+    title: Screen Recording permission is required
+    request: Request permission
+    openSettings: Open System Settings
+    relaunch: Relaunch to apply
+    checking: "Current state: not granted (re-checking every second)"
+    guidanceFirst: |-
+      DoppelScreen streams this Mac's screen.
+      Press "Request permission" and allow it in the dialog that appears.
+    guidanceAgain: |-
+      Allow DoppelScreen under System Settings › Privacy & Security › Screen Recording.
+      Granting it does not apply to a running app, so a relaunch is needed afterwards.
+
+      If it looks granted but still has no effect, remove DoppelScreen from the list and add it again (development builds are signed differently each time, so they are treated as a different app).
+
+  control:
+    preview: Preview
+    start: Start streaming
+    stop: Stop
+
+  preview:
+    noDisplay: No display found
+    waitingViewer: Waiting for a viewer to open the URL
+    notServing: Press "Start streaming" to begin listening
+    awaitingApproval: Approve the request to see the screen here
+    connecting: Connecting…
+
+  connection:
+    noAddress: No LAN address found
+    certificateUnavailable: "HTTPS unavailable: {reason}"
+    copyUrl: Copy URL
+    showQR: Show QR
+    hideQR: Hide QR
+    scanHint: Scan this QR with the camera of the device you want to view on
+    idle: No viewer connected
+    request: "Connection request from {address}"
+    approve: Approve
+    reject: Reject
+    connecting: "Connecting to {address}"
+    streaming: "Streaming to {address}"
+    disconnect: Disconnect
+    quality: "Quality: {preset}"
+
+  pairing:
+    token: "Pairing token: {token}"
+    expires: "Renews in {seconds}s"
+    expired: Expired — regenerate it
+    regenerate: Regenerate
+    rejected: Regenerated after repeated wrong tokens
+
+  quality:
+    sharp: Sharp text
+    balanced: Balanced
+    smooth: Smooth
+
+  status:
+    requests: "{count} connection request(s)"
+    streaming: "{active} / {total} display(s) streaming"
+
+  failure:
+    viewerPageMissing: The viewer page is missing from the bundle (check that apps/web was built)
+    displayNotFound: "Display {id} was not found"
+    peerUnavailable: Could not create a PeerConnection
+    controlUnavailable: Could not create the control channel
+    answerRejected: The viewer's answer could not be accepted
+    peerFailed: The connection failed
+    viewerDisconnected: The connection to the viewer was lost
+    viewerLeft: The viewer disconnected
+    keychain: "Keychain operation failed ({operation}: {message})"
+    certificateCreationFailed: Could not create the certificate
+    keyCreationFailed: "Could not create the private key: {message}"
+
+viewer:
+  status:
+    connecting: Connecting to the host…
+    awaitingApproval: Waiting for approval on the host…
+    negotiating: Preparing video…
+    connected: Connected
+    connectedTo: "Connected to {display}"
+    tapToPlay: Tap the screen to start playback
+    reconnecting: Connection lost. Reconnecting…
+    retry: Reconnect
+
+  secure:
+    required: This browser requires a secure connection for WebRTC.
+    unreachable: Cannot reach the host.
+    open: Reopen over HTTPS
+
+  quality:
+    sharp: Sharp text
+    balanced: Balanced
+    smooth: Smooth
+    changed: "Quality: {preset}"
+
+  error:
+    invalidToken: The pairing token is not valid. Scan the QR again
+    tokenExpired: The pairing token has expired. Scan the host's QR again
+    tooManyAttempts: Too many attempts. Have the host show a new QR
+    displayNotFound: The requested display was not found
+    rejected: The host did not approve the connection
+    captureStopped: Screen capture stopped on the host
+    captureFailed: The host could not start capturing the screen
+    hostClosed: The connection to the host was lost
+    connectFailed: Could not reach the host
+    peerFailed: The connection failed
+    unknown: An error occurred

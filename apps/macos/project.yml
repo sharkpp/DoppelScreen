@@ -5,6 +5,9 @@ options:
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
+  # 文言は i18n/*.yaml が正で、Sources/Resources/<言語>.lproj は生成物（SPEC.md §11-7）。
+  # 言語の選択は OS に任せるため、基準言語だけ宣言する
+  developmentLanguage: ja
 
 settings:
   base:

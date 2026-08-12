@@ -1,0 +1,132 @@
+# 文言の出どころ（SPEC.md §11-7）。基準となる言語。
+#
+# ここを直したら `make i18n` を実行する。各プラットフォームの形式へ変換される。
+# 変換先は tools/i18n/generate.mjs を参照。
+#
+# - `host.*`  ホストアプリの UI。macOS / Windows / Android / iOS が共有する
+# - `viewer.*` ブラウザで動くビューア
+#
+# 置き換えは `{name}` で書く。訳文で語順が変わってもよいが、**同じ名前を過不足なく**
+# 含めること（欠けていると変換時に落ちる）。
+#
+# ホストがビューアへ送るエラーは、文言ではなく**コード**（`viewer.error.*` のキー）で
+# 送る。ビューアを見ている人の言語で出すため（ホストの言語とは限らない）。
+
+host:
+  menu:
+    showWindow: ウィンドウを表示
+    quit: DoppelScreen を終了
+    stopped: 停止中
+    starting: 開始中…
+    serving: 待受中（{count} 画面を配信）
+    failed: エラー
+    requests: "{count} 件の接続要求"
+
+  onboarding:
+    title: 画面収録の許可が必要です
+    request: 許可を求める
+    openSettings: システム設定を開く
+    relaunch: 再起動して反映
+    checking: "現在の状態: 未許可（1 秒ごとに再確認しています）"
+    guidanceFirst: |-
+      DoppelScreen はこの Mac の画面を配信します。
+      「許可を求める」を押し、表示されるダイアログで許可してください。
+    guidanceAgain: |-
+      システム設定の「プライバシーとセキュリティ  ›  画面収録」で DoppelScreen を許可してください。
+      許可しても実行中のアプリには反映されないため、そのあと再起動が必要です。
+
+      すでに許可済みに見えるのに反映されない場合は、リストから DoppelScreen を一度削除して追加し直してください（開発ビルドは署名が毎回変わるため、別アプリとして扱われます）。
+
+  control:
+    preview: プレビュー
+    start: 配信を開始
+    stop: 停止
+
+  preview:
+    noDisplay: ディスプレイが見つかりません
+    waitingViewer: URL を開いたビューアからの接続を待っています
+    notServing: 「配信を開始」で待受を始めます
+    awaitingApproval: 接続要求を承認するとここに映ります
+    connecting: 接続しています…
+
+  connection:
+    noAddress: LAN のアドレスが見つかりません
+    certificateUnavailable: "HTTPS は使えません: {reason}"
+    copyUrl: URL をコピー
+    showQR: QR を表示
+    hideQR: QR を隠す
+    scanHint: この QR をビューアにする端末のカメラで読んでください
+    idle: ビューア未接続
+    request: "{address} から接続要求"
+    approve: 承認
+    reject: 拒否
+    connecting: "{address} と接続中"
+    streaming: "{address} へ配信中"
+    disconnect: 切断
+    quality: "画質: {preset}"
+
+  pairing:
+    token: "接続トークン: {token}"
+    expires: "あと {seconds} 秒で新しくなります"
+    expired: 期限切れ。作り直してください
+    regenerate: 作り直す
+    rejected: トークンの誤りが続いたため作り直しました
+
+  quality:
+    sharp: 文字くっきり
+    balanced: バランス
+    smooth: なめらか
+
+  status:
+    requests: "{count} 件の接続要求"
+    streaming: "{active} / {total} 画面を配信中"
+
+  # 配信が落ちた理由。ホスト UI に出す
+  failure:
+    viewerPageMissing: ビューアページがバンドルに含まれていません（apps/web のビルドを確認してください）
+    displayNotFound: "ディスプレイ {id} が見つかりません"
+    peerUnavailable: PeerConnection を生成できません
+    controlUnavailable: 制御チャネルを生成できません
+    answerRejected: ビューアの応答を受け付けられませんでした
+    peerFailed: 接続に失敗しました
+    viewerDisconnected: ビューアとの接続が切れました
+    viewerLeft: ビューアが切断しました
+    keychain: "キーチェーン操作に失敗しました（{operation}: {message}）"
+    certificateCreationFailed: 証明書を生成できませんでした
+    keyCreationFailed: "秘密鍵を生成できませんでした: {message}"
+
+viewer:
+  status:
+    connecting: ホストへ接続しています…
+    awaitingApproval: ホストでの承認を待っています…
+    negotiating: 映像を準備しています…
+    connected: 接続しました
+    connectedTo: "{display} に接続"
+    tapToPlay: 画面をタップして再生してください
+    reconnecting: 接続が切れました。再接続しています…
+    retry: 再接続する
+
+  secure:
+    required: このブラウザは WebRTC にセキュアな接続を必要とします。
+    unreachable: 接続できません。
+    open: HTTPS で開き直す
+
+  quality:
+    sharp: 文字くっきり
+    balanced: バランス
+    smooth: なめらか
+    changed: "画質: {preset}"
+
+  # ホストから届くエラーコードに対応する。ホストが送ってきた文言より優先する
+  error:
+    invalidToken: 接続トークンが正しくありません。QR を読み直してください
+    tokenExpired: 接続トークンの期限が切れました。ホストの QR を読み直してください
+    tooManyAttempts: 接続の試行が多すぎます。ホストで QR を出し直してください
+    displayNotFound: 指定された画面が見つかりません
+    rejected: ホストが接続を承認しませんでした
+    captureStopped: ホスト側で画面の取得が止まりました
+    captureFailed: ホスト側で画面の取得を開始できませんでした
+    hostClosed: ホストとの接続が切れました
+    connectFailed: ホストへ接続できませんでした
+    peerFailed: 接続に失敗しました
+    unknown: エラーが発生しました

@@ -1,0 +1,13 @@
+{
+  "name": "doppelscreen-i18n",
+  "private": true,
+  "type": "module",
+  "description": "言語定義（i18n/*.yaml）を各プラットフォーム向けの形式へ変換する",
+  "scripts": {
+    "generate": "node generate.mjs",
+    "check": "node generate.mjs --check"
+  },
+  "dependencies": {
+    "yaml": "^2.7.0"
+  }
+}

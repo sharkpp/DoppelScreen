@@ -1,9 +1,10 @@
-.PHONY: macos-dev-certificate macos-generate macos-build macos-run macos-selftest macos-serve macos-clean macos-reset-permission latency-clock latency-analyze web-install web-build web-test e2e
+.PHONY: i18n i18n-check macos-dev-certificate macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission latency-clock latency-analyze web-install web-build web-test e2e
 
 BUNDLE_ID := net.sharkpp.doppelscreen
 
 MACOS_DIR := apps/macos
 WEB_DIR := apps/web
+I18N_DIR := tools/i18n
 MACOS_BUILD := $(MACOS_DIR)/build
 MACOS_APP := $(MACOS_BUILD)/Build/Products/Debug/DoppelScreen.app
 
@@ -14,6 +15,17 @@ VIDEO_PATH := $(patsubst ~/%,$(HOME)/%,$(VIDEO))
 SELFTEST_DIR := $(MACOS_BUILD)/selftest
 # 例: make macos-selftest SELFTEST_ARGS="--display 1 --duration 5"
 SELFTEST_ARGS ?=
+
+# 言語定義（i18n/*.yaml）を各プラットフォームの形式へ変換する（SPEC.md §11-7）。
+# 生成物はコミットするため、通常のビルドで Node は要らない。文言を直したときだけ実行する。
+i18n:
+	@npm --prefix $(I18N_DIR) install --silent
+	@node $(I18N_DIR)/generate.mjs
+
+# 生成物が言語定義と食い違っていないかだけ見る
+i18n-check:
+	@npm --prefix $(I18N_DIR) install --silent
+	@node $(I18N_DIR)/generate.mjs --check
 
 # 開発ビルド用のコード署名証明書を作る。初回のみ実行する。
 # これがないと ad-hoc 署名になり、リビルドのたびに画面収録の許可が失効する。
