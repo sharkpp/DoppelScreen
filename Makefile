@@ -129,3 +129,10 @@ macos-reset-permission:
 
 macos-clean:
 	rm -rf $(MACOS_BUILD) $(MACOS_DIR)/DoppelScreen.xcodeproj $(WEB_DIR)/dist
+
+# 署名・notarize 済みの配布物を作る（SPEC.md §10 M2）。
+# Developer ID 証明書と notarytool の資格情報が要る。手順は scripts/release.sh の冒頭。
+# 例: make macos-release SIGNING_IDENTITY="Developer ID Application: Name (TEAMID)" NOTARY_PROFILE=doppelscreen
+macos-release:
+	@test -n "$(SIGNING_IDENTITY)" || { echo 'SIGNING_IDENTITY="Developer ID Application: ..." を指定してください' >&2; exit 1; }
+	@SIGNING_IDENTITY="$(SIGNING_IDENTITY)" NOTARY_PROFILE="$(NOTARY_PROFILE)" $(MACOS_DIR)/scripts/release.sh

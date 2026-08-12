@@ -4,6 +4,7 @@ apps/macos/Sources/Info.plist
 
 # Xcode
 build/
+build-release/
 DerivedData/
 *.xcuserstate
 xcuserdata/
