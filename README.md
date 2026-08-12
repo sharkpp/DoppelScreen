@@ -30,21 +30,31 @@ make macos-run               # ホストアプリをビルドして起動する
 make e2e                     # ホストを起動し、実ブラウザから繋いで映像が出るまでを確認する
 ```
 
-`make macos-run` で起動し、ディスプレイを選んで「開始」を押すと接続先の URL が出ます。
-同一 LAN の端末のブラウザでその URL を開くと画面が映ります。
+`make macos-run` で起動し、ディスプレイを選んで「配信を開始」を押すと、画面ごとの QR と URL が出ます。
+手元の端末のカメラで QR を読み、**ホスト側で「承認」を押す**と画面が映ります。
 
 | コマンド | 内容 |
 | --- | --- |
 | `make macos-run` | ホストアプリをビルドして起動 |
-| `make macos-selftest` | UI なしでキャプチャの健全性を確認 |
-| `make macos-serve` | UI なしで配信を立ち上げ、接続先を表示して待つ |
+| `make macos-test` | ホスト側の単体テスト（ペアリング・プロトコル・プリセット） |
 | `make web-test` | ビューアの単体テスト |
 | `make e2e` | ホスト + 実ブラウザの通し確認（遅延の内訳も記録する） |
+| `make i18n` | 言語定義（`i18n/*.yaml`）を各プラットフォームの形式へ変換 |
+| `make macos-selftest` | UI なしでキャプチャの健全性を確認 |
+| `make macos-serve` | UI なしで配信を立ち上げ、接続先を表示して待つ |
 | `make latency-clock` | glass-to-glass 実測用のミリ秒カウンタを表示 |
+| `make macos-release` | 署名・notarize 済みの配布物を作る（証明書が要る） |
 | `make macos-reset-permission` | 画面収録の許可をリセット |
+
+文言を変えるときは `i18n/ja.yaml` / `i18n/en.yaml` を直して `make i18n` を実行してください
+（[docs/STACK.md §6.2](docs/STACK.md)）。
 
 # 状態
 
-M1（低遅延化）を実装中。ホストの画面がブラウザに映り、H.264 のハードウェアエンコードで
-ディスプレイの実解像度のまま届きます。遅延の内訳は `make e2e` が記録します
-（[docs/STACK.md §2.11](docs/STACK.md)）。
+M2（実用化）まで実装済みです。QR ペアリングとホスト承認、画面ごとの配信、解像度追従、
+品質プリセット、自動再接続、日本語／英語の切り替えが動きます。
+配布物の署名・notarization は手順とスクリプトを用意した段階で、実行には Developer ID 証明書が要ります。
+
+遅延（M1）は **glass-to-glass の目標 60ms に未達**で、直近の実測は中央値 67ms です
+（Wi-Fi・[docs/latency-measurements.md](docs/latency-measurements.md)）。有線での測り直しと
+内訳の取得が次の作業です。

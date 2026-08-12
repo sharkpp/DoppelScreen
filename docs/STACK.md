@@ -257,6 +257,19 @@ SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載
 - **`kSecUseDataProtectionKeychain: false` を明示する。** 付けないとデータ保護キーチェーンへ回され、
   `keychain-access-groups` エンタイトルメントを要求されて `errSecMissingEntitlement` で弾かれる。
   このエンタイトルメントには実 Team ID とプロビジョニングプロファイルが要り、自己署名の開発ビルドでは付けられない。
+- **鍵に「どのプロセスからも確認なしで使える」利用許可を付ける**（`SecAccessCreate` +
+  `SecACLSetContents(acl, nil, ...)`）。既定のまま（＝作成したアプリだけ）にすると、
+  **アプリを更新した瞬間に HTTPS が黙って死ぬ。** 署名の変わった実行ファイルから鍵を使おうとすると
+  キーチェーンが確認ダイアログを出そうとし、検証モード（§2.7）のように UI を持たないプロセスでは
+  **そのまま返ってこない**。TCP は繋がるのに TLS ハンドシェイクが完了しない、という一番分かりにくい
+  壊れ方をする（実際に踏み、`make e2e` の HTTPS 経路だけが落ち続けた）。
+  `SecACLSetContents` の `applicationList` は **`nil` が「どのアプリでも可」**で、
+  空配列は「どのアプリも不可」。意味が正反対なので注意する。
+  この鍵が守るのは LAN 内の中間者だけで、同じ Mac 上のプロセスに対しては何も守っていない
+  （画面を撮れる立場のプロセスは配信内容そのものを直接読める）。秘密は接続トークンと
+  ホスト承認の側にある（SPEC.md §5.2）。
+  なお `SecAccessCreate` 系は macOS 10.10 で deprecated だが、**ファイルベースのキーチェーンには
+  代替がない**。上の `kSecUseDataProtectionKeychain: false` と同じ理由で、ここは警告を承知で使う。
 - **鍵はキーチェーンの中で作る**（`SecKeyCreateRandomKey` + `kSecAttrIsPermanent`）。
   `SecKeyCreateWithData` で作った「浮いた」鍵を `kSecValueRef` で `SecItemAdd` に渡すと、
   ファイルベースのキーチェーンは項目参照として受け付けず `errSecInvalidItemRef` を返す。
@@ -565,6 +578,84 @@ DataChannel `control` を 1 本だけ持つ（SPEC.md §7）。**offer を作る
 - 当て方は **`SCStream.updateConfiguration`**。ストリームを張り直すと切り替えのたびに
   数フレーム落ちてキーフレームからやり直しになる。
 
+### 2.14 ペアリングと QR（M2）
+
+`PairingService` がトークンの発行・期限・検証をまとめて持つ（SPEC.md §5.2）。
+`LocalServer` はこれを渡されるだけで、照合の中身を知らない。
+
+| 決めごと | 値 | 理由 |
+| --- | --- | --- |
+| 期限 | 5 分 | 古い QR の写真では繋がらないようにする |
+| 期限切れの扱い | 次に読まれたときに作り直す | 画面に出ている QR は常に生きている |
+| 接続確立時 | **失効させない** | 失効させると 2 画面目を繋げない（SPEC.md §5.2） |
+| 失敗 5 回 | トークンを作り直す | 1 つのトークンに対する試行を 5 回で打ち切る |
+| 同じ相手からの失敗 | 30 秒の窓で 5 回まで | 作り直しても試行され続けるので、頻度そのものを抑える |
+
+- **成功はレート制限の枠を使わない。** ビューアは自動で繋ぎ直す（§2.15）ため、
+  正しい端末が自分で枠を食い潰す形にしてはいけない。
+- トークンの照合は定数時間で行う。LAN 内とはいえ、比較時間で当てられる余地を残さない。
+- **QR は `CIQRCodeGenerator`（CoreImage）で作る。** 外部ライブラリを足す理由がない。
+  補間して拡大するとモジュールの境界がぼけて読み取り率が落ちるので、整数倍に拡大してから
+  ラスタライズし、`Image.interpolation(.none)` で描く。
+- QR には**トークンと画面を含む完全な URL** が入る。既定は HTTP で、HTTPS も併記する
+  （SPEC.md §5.3）。URL 文字列は QR が読めない環境の代替として残す。
+
+### 2.15 再接続と承認の関係（M2）
+
+ビューアは切れたら自動で繋ぎ直す（SPEC.md §11-4）。素直に作ると**繋ぎ直すたびにホストで
+「承認」を押すことになり**、ネットワークが一瞬切れただけでモニタとして使えなくなる。
+
+そこで**再接続チケット**を持つ。承認して配信が始まった直後に、ホストが制御チャネルで
+使い切りのチケットを渡す（`{"t":"resume","ticket":"…","ttlMs":600000}`）。ビューアはこれを
+`sessionStorage` に置き、次の `hello` に載せる。通ればホストは接続トークンの照合も承認も省く。
+
+- **接続トークンの期限（5 分）とは独立させる。** 長く映しているうちにトークンが回っても、
+  繋ぎっぱなしのビューアが切れてはいけない。
+- **チケットは画面に紐づける。** 画面 A の承認で画面 B が映せてはいけない。
+- **寿命は 10 分。** ネットワーク断・スリープ復帰・ディスプレイ構成変更を跨ぐには足りて、
+  「席を外している間に勝手に繋がれる」には足りない長さにする。長く取ると無人アクセスを
+  禁じた前提（SPEC.md §1.2）が崩れる。
+- **人が「切断」を押したらその画面のチケットを無効にする。** 切ったつもりのビューアが
+  黙って戻ってきてはいけない。
+- ビューアは繋ぎ直しても直らない理由（トークン不正・期限切れ・試行過多・承認拒否・画面なし）
+  では**繰り返さない**。繰り返すとホストのレート制限に自分で引っかかる。
+
+### 2.16 品質プリセット（M2）
+
+ビューアが選び、ホストが当てる（SPEC.md §7.2）。実際に動くのは 3 つだけ。
+
+| プリセット | 上限 fps | 上限ビットレート | `degradationPreference` |
+| --- | --- | --- | --- |
+| `sharp`（既定） | 30 | 20 Mbps | `maintain-resolution` |
+| `balanced` | 60 | 30 Mbps | `maintain-resolution` |
+| `smooth` | 60 | 40 Mbps | `maintain-framerate` |
+
+- **上限 fps はキャプチャ側にも当てる**（`SCStreamConfiguration.minimumFrameInterval`）。
+  エンコーダだけで絞ると、撮ってから捨てるぶんの CPU と電力が無駄になる。
+- **`contentHint` は当てない。** W3C の送出側 API で、libwebrtc の Objective-C SDK には
+  対応するプロパティがない（`RTCVideoTrack` に無い）。ホストがネイティブである以上
+  ブラウザ側からも触れないため、`contentHint` が意図していた挙動を
+  `degradationPreference` と上限 fps で表す。
+- プリセットは接続ごとに既定へ戻す。次に繋いでくるのは別のビューアかもしれない。
+  ビューア側は繋ぎ直したときに自分の選択を送り直す。
+
+### 2.17 配布（署名・notarization）
+
+`apps/macos/scripts/release.sh`（`make macos-release`）。Developer ID 証明書と
+notarytool の資格情報は開発者ごとに用意し、リポジトリには入れない。手順はスクリプト冒頭。
+
+- **`codesign --deep` を使わない。** 入れ子の署名要件を潰してしまい、Apple も非推奨にしている。
+  `Contents/Frameworks` を先に署名してから本体を署名する。
+- notarization には **hardened runtime（`--options runtime`）と secure timestamp が必須**。
+  Release 構成では `ENABLE_HARDENED_RUNTIME: YES`。
+  開発ビルドで NO にしているのは、自己署名証明書が Team ID を持たず、ライブラリ検証が
+  `WebRTC.framework` の読み込みを拒否するため（§2.1）。
+- 圧縮は **`ditto -c -k --keepParent`**。`zip` コマンドは拡張属性を落として署名を壊す。
+- 依存のライセンス表示は `scripts/bundle-licenses.sh` が `Contents/Resources/Licenses/` へ入れる。
+  libwebrtc（BSD 3-Clause）も swift-*（Apache-2.0）もバイナリ配布の条件にしている
+  （[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md)）。**リリースのときだけ入れると忘れるので、
+  開発ビルドから同じ形で入れる。**
+
 ---
 
 ## 3. Windows ホスト（`apps/windows`）
@@ -636,22 +727,61 @@ apps/web/dist/index.html  →  ホストアプリのリソースへコピー
 
 ビューアのソースはホスト実装から独立させ、**ホスト側はビルド済みの 1 ファイルしか知らない**状態を保つ。
 
-### 6.2 バージョン固定
+### 6.2 文言（`i18n/`）
+
+**文言の出どころは `i18n/<言語>.yaml` の 1 か所**（SPEC.md §11-7）。ここを直して `make i18n` を
+実行すると、各プラットフォームの形式へ変換される。生成物はコミットする — そうしないと
+macOS のビルドに Node が要るようになる。
+
+| 出力先 | 形式 | 受け持つ範囲 |
+| --- | --- | --- |
+| `apps/macos/Sources/Resources/<言語>.lproj/Localizable.strings` | Apple 標準の `.strings` | `host.*` |
+| `apps/macos/Sources/Generated/L10n.swift` | キーと引数の型だけを持つ入り口 | `host.*` |
+| `apps/web/src/generated/strings.ts` | 全言語を埋め込んだモジュール | `viewer.*` |
+
+- **macOS は `.strings` をそのまま吐き、言語の選択は OS に任せる。** 自前の言語選択を持つと、
+  システム設定の「アプリごとの言語」が効かなくなる。`L10n` が持つのはキーの綴りと引数の型だけ。
+- **ビューアは全言語をコードに埋め込む。** 単一 HTML で配信する（§6.1）以上、言語ファイルを
+  実行時に取りに行く経路を持てない。選択は読み込み時に 1 回だけ（`navigator.languages`）。
+- 置き換えは `{name}`。訳文で語順が変わってよいように、`.strings` へは番号付きの
+  書式指定子（`%1$@`）で書き出す。訳が欠けていたり置き換えの名前が食い違うと `make i18n` が落ちる。
+
+**ホストがビューアへ送るエラーは、文言ではなくコードで送る。**
+ホストの表示言語とビューアの表示言語は一致しない（Mac は日本語、手元の iPad は英語、という
+組み合わせが普通にある）。`{"t":"error","code":"token_expired"}` を受けて、ビューアが
+`viewer.error.*` から自分の言語で出す（`apps/web/src/errors.ts`）。`detail` は OS 由来の説明など、
+コードにできない補足だけに使う。
+
+Windows / Android / iOS のホストを足すときは、`tools/i18n/` に出力先を 1 つ追加する
+（`swift.mjs` と同じ形の render 関数を書き、`generate.mjs` の `targets` に並べる）。
+
+### 6.3 バージョン固定
 
 - libwebrtc の版はプラットフォーム間でできる限り揃える。片方だけ更新して相互運用が壊れる事故を避ける。実際の版番号は `docs/adr/` に記録し、更新は明示的な判断として扱う。
 - ビューアの `package-lock.json`、SPM の `Package.resolved`、vcpkg の baseline、Gradle の lockfile をすべてコミットする。
 
-### 6.3 テスト
+### 6.4 テスト
 
-| 層 | 手段 |
-| --- | --- |
-| プロトコル（SPEC.md §7）のエンコード／デコード | 各言語の単体テスト（swift-testing / Vitest / GoogleTest / kotlin.test）。純粋関数として切り出す |
-| 解像度追従・デバウンスのロジック | Vitest（ビューア側）、swift-testing（ホスト側） |
-| 証明書生成（SAN・永続化・再生成条件） | 単体テスト。実機不要 |
-| end-to-end | Playwright（ヘッドless Chromium）でビューアを開き、映像トラックが `getStats()` 上でフレームを受信していることを確認。macOS ランナーで実ホストを起動する |
-| glass-to-glass 遅延 | 手動。カメラ同時撮影（SPEC.md §3.3）。リリースごとに記録 |
+| 層 | 手段 | コマンド |
+| --- | --- | --- |
+| プロトコル（SPEC.md §7）のエンコード／デコード | swift-testing / Vitest。純粋関数として切り出す | `make macos-test` / `make web-test` |
+| ペアリング（期限・失敗回数・レート制限・再接続チケット） | swift-testing | `make macos-test` |
+| 解像度追従・デバウンスのロジック | Vitest（ビューア側）、swift-testing（ホスト側） | 同上 |
+| 言語定義と生成物の整合 | 生成しなおして差分を見る | `make i18n-check` |
+| end-to-end | Playwright + 実 Chrome。macOS ランナーで実ホストを起動する | `make e2e` |
+| glass-to-glass 遅延 | 手動。カメラ同時撮影（SPEC.md §3.3）。リリースごとに記録 | `make latency-clock` |
 
-キャプチャ層は実機依存で CI に載せづらいため、**その周辺（プロトコル・証明書・追従ロジック）を実機なしでテストできる形に切り出しておく**ことが設計上の要件になる。
+キャプチャ層は実機依存で CI に載せづらいため、**その周辺（プロトコル・ペアリング・追従ロジック）を実機なしでテストできる形に切り出しておく**ことが設計上の要件になる。
+
+**Swift のテストバンドルはアプリをテストホストにしない。** ホストにすると実行のたびに
+アプリが起動して UI と TCC が絡み、CI に載らなくなる。代わりに `Sources`（`App/` を除く）を
+テストバンドルへ直接取り込む。同一モジュールになるので `@testable import` も要らない。
+
+期限まわり（トークンの TTL、レート制限の窓、再接続チケットの寿命）は `PairingService` の
+イニシャライザで注入できるようにしてある。**5 分待たないと確かめられない作りにしない。**
+
+証明書生成（`TLSIdentity`）はキーチェーンに触るため、この単体テストには含めていない。
+確認は `make macos-serve` と E2E の HTTPS 経路で行う。
 
 ---
 
@@ -667,3 +797,6 @@ apps/web/dist/index.html  →  ホストアプリのリソースへコピー
 5. `RTCRtpReceiver.jitterBufferTarget` の Safari 対応状況（未対応なら iPad ビューアの遅延がどこまで下がるか）。
    Chrome では 0 を設定でき、ジッタバッファは 8.3ms まで下がることを実測（§2.11）
 6. macOS 15+ のローカルネットワークアクセス許諾がバックグラウンドの待受にどう影響するか
+7. `SecAccessCreate` 系（deprecated）の代替。ファイルベースのキーチェーンには現状 代替がなく、
+   データ保護キーチェーンへ移すには実 Team ID とプロビジョニングプロファイルが要る（§2.4）。
+   Developer ID での配布に移った時点で、`kSecUseDataProtectionKeychain: true` に寄せられるか確認する
