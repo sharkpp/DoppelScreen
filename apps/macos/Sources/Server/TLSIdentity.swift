@@ -43,11 +43,11 @@ enum TLSIdentity {
             switch self {
             case .keychain(let status, let operation):
                 let message = SecCopyErrorMessageString(status, nil) as String? ?? "\(status)"
-                return "キーチェーン操作に失敗しました（\(operation): \(message)）"
+                return L10n.Failure.keychain(operation: operation, message: message)
             case .certificateCreationFailed:
-                return "証明書を生成できませんでした"
+                return L10n.Failure.certificateCreationFailed
             case .keyCreationFailed(let message):
-                return "秘密鍵を生成できませんでした: \(message)"
+                return L10n.Failure.keyCreationFailed(message: message)
             }
         }
     }
@@ -111,7 +111,7 @@ enum TLSIdentity {
             kSecClass: kSecClassCertificate,
             kSecValueRef: secCertificate,
             kSecAttrLabel: marker,
-        ], operation: "証明書の保存")
+        ], operation: "save-certificate")
 
         guard let identity = identity(for: secCertificate) else {
             throw IdentityError.certificateCreationFailed
@@ -126,13 +126,20 @@ enum TLSIdentity {
     /// 作ってから取り出して swift-certificates に署名させる。
     private static func storeNewKey() throws -> P256.Signing.PrivateKey {
         var error: Unmanaged<CFError>?
+        var privateKeyAttributes: [CFString: Any] = [
+            kSecAttrIsPermanent: true,
+            kSecAttrLabel: marker,
+        ]
+        // 取れなかった場合は既定（作成したアプリだけ）になる。HTTPS が使えなくなる可能性は
+        // 残るが、鍵を作れないよりはよい
+        if let access = try? unrestrictedAccess() {
+            privateKeyAttributes[kSecAttrAccess] = access
+        }
+
         guard let secKey = SecKeyCreateRandomKey(query([
             kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom,
             kSecAttrKeySizeInBits: 256,
-            kSecPrivateKeyAttrs: [
-                kSecAttrIsPermanent: true,
-                kSecAttrLabel: marker,
-            ] as [CFString: Any],
+            kSecPrivateKeyAttrs: privateKeyAttributes as CFDictionary,
         ]), &error) else {
             throw IdentityError.keyCreationFailed(
                 (error?.takeRetainedValue() as Error?)?.localizedDescription ?? "unknown"
@@ -141,12 +148,48 @@ enum TLSIdentity {
 
         // EC の秘密鍵は ANSI X9.63 形式（04 || X || Y || K）で出てくる
         guard let external = SecKeyCopyExternalRepresentation(secKey, &error) as Data? else {
-            try? delete([kSecClass: kSecClassKey, kSecMatchItemList: [secKey]], operation: "秘密鍵の巻き戻し")
+            try? delete([kSecClass: kSecClassKey, kSecMatchItemList: [secKey]], operation: "rollback-key")
             throw IdentityError.keyCreationFailed(
-                (error?.takeRetainedValue() as Error?)?.localizedDescription ?? "取り出せません"
+                (error?.takeRetainedValue() as Error?)?.localizedDescription ?? "unavailable"
             )
         }
         return try P256.Signing.PrivateKey(x963Representation: external)
+    }
+
+    /// 秘密鍵に付ける利用許可。**どのプロセスからも確認なしで使える**ようにする。
+    ///
+    /// 既定（`SecAccessCreate` に `nil` を渡したときと同じ＝作成したアプリだけ）にすると、
+    /// **アプリを更新した瞬間に HTTPS が黙って死ぬ。** 署名が変わった実行ファイルから鍵を
+    /// 使おうとするとキーチェーンが確認ダイアログを出そうとし、検証モード（§2.7）のように
+    /// UI を持たないプロセスでは**そのまま返ってこない**。TCP は繋がるのに TLS ハンドシェイクが
+    /// 完了しない、という一番分かりにくい壊れ方をする（実際に踏んだ）。
+    ///
+    /// 守るものと釣り合っているかを考えたうえでの判断:
+    /// この鍵が守るのは LAN 内の中間者だけで、**同じ Mac 上のプロセスに対しては何も守っていない**
+    /// （画面を撮れる立場のプロセスは、そもそも配信内容そのものを直接読める）。
+    /// 秘密は接続トークンとホスト承認の側にあり（SPEC.md §5.2）、ここではない。
+    private static func unrestrictedAccess() throws -> SecAccess {
+        var access: SecAccess?
+        let status = SecAccessCreate(marker as CFString, nil, &access)
+        guard status == errSecSuccess, let access else {
+            throw IdentityError.keychain(status, "create-access")
+        }
+
+        var acls: CFArray?
+        let listStatus = SecAccessCopyACLList(access, &acls)
+        guard listStatus == errSecSuccess, let entries = acls as? [SecACL] else {
+            throw IdentityError.keychain(listStatus, "read-acl")
+        }
+
+        // `applicationList` に nil を渡すと「どのアプリでも可」になる。
+        // 空配列だと「どのアプリも不可」で、意味が正反対になる
+        for acl in entries {
+            let contentsStatus = SecACLSetContents(acl, nil, "" as CFString, [])
+            guard contentsStatus == errSecSuccess else {
+                throw IdentityError.keychain(contentsStatus, "set-acl")
+            }
+        }
+        return access
     }
 
     private static func generalName(for address: String) -> GeneralName? {
@@ -178,7 +221,7 @@ enum TLSIdentity {
         case errSecItemNotFound:
             return nil
         default:
-            throw IdentityError.keychain(status, "証明書の一覧取得")
+            throw IdentityError.keychain(status, "list-certificates")
         }
 
         guard let references = result as? [SecCertificate] else { return nil }
@@ -235,12 +278,12 @@ enum TLSIdentity {
         if let identity = identity(for: certificate) {
             var key: SecKey?
             if SecIdentityCopyPrivateKey(identity, &key) == errSecSuccess, let key {
-                try delete([kSecClass: kSecClassKey, kSecMatchItemList: [key]], operation: "古い秘密鍵の削除")
+                try delete([kSecClass: kSecClassKey, kSecMatchItemList: [key]], operation: "delete-old-key")
             }
         }
         try delete(
             [kSecClass: kSecClassCertificate, kSecMatchItemList: [certificate]],
-            operation: "古い証明書の削除"
+            operation: "delete-old-certificate"
         )
     }
 
