@@ -82,6 +82,11 @@ targets:
       - name: ビューアをビルドしてバンドルへ入れる
         basedOnDependencyAnalysis: false
         script: '"$PROJECT_DIR"/scripts/build-viewer.sh'
+      # 依存のライセンス表示は配布の条件（THIRD-PARTY-NOTICES.md）。
+      # リリースのときだけ入れると忘れるので、開発ビルドから同じ形で入れる
+      - name: ライセンス表示をバンドルへ入れる
+        basedOnDependencyAnalysis: false
+        script: '"$PROJECT_DIR"/scripts/bundle-licenses.sh'
     info:
       path: Sources/Info.plist
       properties:
