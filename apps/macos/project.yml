@@ -25,7 +25,7 @@ packages:
   # ビューアページの配信とシグナリング（docs/STACK.md §2.4）。
   # HTTP と WebSocket アップグレードを 1 ポートで扱える。
   # 版は明示的な判断として扱う。生成物である .xcodeproj ごと Package.resolved が
-  # gitignore されるため、固定はここで行う（docs/STACK.md §6.2）
+  # gitignore されるため、固定はここで行う（docs/STACK.md §6.4）
   SwiftNIO:
     url: https://github.com/apple/swift-nio
     exactVersion: 2.101.3

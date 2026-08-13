@@ -30,8 +30,9 @@ make macos-run               # ホストアプリをビルドして起動する
 make e2e                     # ホストを起動し、実ブラウザから繋いで映像が出るまでを確認する
 ```
 
-`make macos-run` で起動し、ディスプレイを選んで「配信を開始」を押すと、画面ごとの QR と URL が出ます。
+`make macos-run` で起動して「配信を開始」を押すと、画面ごとの QR と URL が出ます。
 手元の端末のカメラで QR を読み、**ホスト側で「承認」を押す**と画面が映ります。
+アプリはメニューバーに常駐します（Dock アイコンは持ちません）。
 
 | コマンド | 内容 |
 | --- | --- |
@@ -40,6 +41,7 @@ make e2e                     # ホストを起動し、実ブラウザから繋�
 | `make web-test` | ビューアの単体テスト |
 | `make e2e` | ホスト + 実ブラウザの通し確認（遅延の内訳も記録する） |
 | `make i18n` | 言語定義（`i18n/*.yaml`）を各プラットフォームの形式へ変換 |
+| `make icon` | アイコンの原本（`assets/icon/*.svg`）を各 OS のサイズへ書き出す |
 | `make macos-selftest` | UI なしでキャプチャの健全性を確認 |
 | `make macos-serve` | UI なしで配信を立ち上げ、接続先を表示して待つ |
 | `make latency-clock` | glass-to-glass 実測用のミリ秒カウンタを表示 |
@@ -47,7 +49,8 @@ make e2e                     # ホストを起動し、実ブラウザから繋�
 | `make macos-reset-permission` | 画面収録の許可をリセット |
 
 文言を変えるときは `i18n/ja.yaml` / `i18n/en.yaml` を直して `make i18n` を実行してください
-（[docs/STACK.md §6.2](docs/STACK.md)）。
+（[docs/STACK.md §6.2](docs/STACK.md)）。アイコンは `assets/icon/doppelscreen.svg` が原本で、
+`make icon` が各 OS のサイズを書き出します（[docs/STACK.md §6.3](docs/STACK.md)）。
 
 # 状態
 
