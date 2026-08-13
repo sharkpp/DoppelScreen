@@ -120,6 +120,11 @@ viewer:
     smooth: なめらか
     changed: "画質: {preset}"
 
+  controls:
+    fullscreen: 全画面
+    exitFullscreen: 全画面を終了
+    stats: 遅延
+
   # ホストから届くエラーコードに対応する。ホストが送ってきた文言より優先する
   error:
     invalidToken: 接続トークンが正しくありません。QR を読み直してください

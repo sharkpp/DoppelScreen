@@ -31,11 +31,25 @@ body {
   background: #000;
 }
 
-#status {
+/* 状態と操作を画面下に積む。幅が狭くても互いに重ならない */
+#overlay {
   position: fixed;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: 6vh;
-  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  /* 映像のタップ（全画面切替）を邪魔しない。ボタンだけが受ける */
+  pointer-events: none;
+}
+
+#overlay > * {
+  pointer-events: auto;
+}
+
+#status {
   max-width: 90vw;
   padding: 10px 18px;
   border-radius: 999px;
@@ -75,12 +89,12 @@ body {
   color: #6cf;
 }
 
-/* 画質の切り替え（SPEC.md §7.2）。映像の合成には触らない別レイヤに置く */
+/* 画質・全画面・遅延表示の切り替え。映像の合成には触らない別レイヤに置く */
 #controls {
-  position: fixed;
-  right: 12px;
-  bottom: 6vh;
   display: flex;
+  max-width: 96vw;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 6px;
   padding: 6px;
   border-radius: 999px;
@@ -94,6 +108,13 @@ body {
   display: flex;
   opacity: 0;
   pointer-events: none;
+}
+
+/* 画質と表示の切り替えを見分けるための区切り */
+#controls span {
+  width: 1px;
+  margin: 4px 2px;
+  background: rgb(255 255 255 / 0.22);
 }
 
 #controls button,

@@ -8,9 +8,12 @@
   <body>
     <!-- muted は自動再生の要件（SPEC.md §8.3）。音声は転送しない -->
     <video id="screen" autoplay playsinline muted></video>
-    <div id="status" role="status"></div>
-    <!-- 画質の切り替え（SPEC.md §7.2）。操作 UI は数秒でフェードアウトする -->
-    <div id="controls"></div>
+    <!-- 状態と操作は画面下に縦に積む。重ならないよう 1 つの入れ物にまとめる -->
+    <div id="overlay">
+      <div id="status" role="status"></div>
+      <!-- 画質・全画面・遅延表示の切り替え。操作 UI は数秒でフェードアウトする -->
+      <div id="controls"></div>
+    </div>
     <!-- 遅延計測オーバーレイ（SPEC.md §3.3）。s キーで表示を切り替える -->
     <pre id="stats"></pre>
     <script type="module" src="/src/main.ts"></script>

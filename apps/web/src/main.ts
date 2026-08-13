@@ -154,25 +154,35 @@ const qualityLabels: Record<QualityPreset, string> = {
   smooth: t.quality.smooth,
 };
 
-const qualityButtons = QUALITY_PRESETS.map((preset) => {
+/** 操作 UI のボタンはすべて同じ形で作る。押しても映像のタップを巻き込まない */
+function addControl(label: string, action: () => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.textContent = qualityLabels[preset];
+  button.textContent = label;
   button.addEventListener("click", (event) => {
     // 映像のタップ（フルスクリーン切替）を巻き込まない
     event.stopPropagation();
-    selectQuality(preset);
+    action();
   });
   controls.append(button);
-  return [preset, button] as const;
-});
+  return button;
+}
+
+const qualityButtons = QUALITY_PRESETS.map(
+  (preset) =>
+    [
+      preset,
+      addControl(qualityLabels[preset], () => selectQuality(preset)),
+    ] as const,
+);
 
 function selectQuality(preset: QualityPreset, announce = true): void {
   quality = preset;
   session.setQuality(preset);
   for (const [name, button] of qualityButtons)
     button.classList.toggle("selected", name === preset);
-  if (announce) show(t.quality.changed({ preset: qualityLabels[preset] }), true);
+  if (announce)
+    show(t.quality.changed({ preset: qualityLabels[preset] }), true);
 }
 
 // 初期値は選ばれた結果ではないので言わない。接続中の案内を上書きしてしまう
@@ -189,10 +199,41 @@ async function keepAwake(): Promise<void> {
   }
 }
 
-// フルスクリーンを既定の使用形態にする。ワンタップで入れるようにする（SPEC.md §8.2）
-video.addEventListener("click", () => {
-  if (document.fullscreenElement) void document.exitFullscreen();
-  else void document.documentElement.requestFullscreen().catch(() => {});
+/**
+ * フルスクリーンを既定の使用形態にする（SPEC.md §8.2）。
+ *
+ * iOS / iPadOS の Safari は要素のフルスクリーンを持たない代わりに、映像だけを
+ * 全画面にする独自 API を持つ。ビューアの主用途が iPad である以上ここは落とせない。
+ */
+function toggleFullscreen(): void {
+  if (document.fullscreenElement) {
+    void document.exitFullscreen();
+    return;
+  }
+  if (document.documentElement.requestFullscreen) {
+    void document.documentElement.requestFullscreen().catch(() => {});
+    return;
+  }
+  const legacy = video as HTMLVideoElement & {
+    webkitEnterFullscreen?: () => void;
+  };
+  legacy.webkitEnterFullscreen?.();
+}
+
+// ワンタップで入れるようにする。ボタンは触れる場所を増やすためのもの（SPEC.md §8.2）
+video.addEventListener("click", toggleFullscreen);
+
+// 画質（ホストへ届く設定）と、表示の切り替え（この端末だけの話）を見分けられるように区切る
+controls.append(document.createElement("span"));
+
+const fullscreenButton = addControl(t.controls.fullscreen, toggleFullscreen);
+
+document.addEventListener("fullscreenchange", () => {
+  const entered = document.fullscreenElement !== null;
+  fullscreenButton.textContent = entered
+    ? t.controls.exitFullscreen
+    : t.controls.fullscreen;
+  fullscreenButton.classList.toggle("selected", entered);
 });
 
 // 触ったら操作 UI を出す。数秒でまた消える
@@ -226,7 +267,16 @@ window.setInterval(async () => {
   stats.textContent = format(reading.latency);
 }, 1000);
 
-// 計測は常時見せる必要がない。`s` で消せるようにする
+// 計測は常時見せるものではない。モニタとして使っている間は映像だけを残す（SPEC.md §8.2）。
+// 既定は非表示で、ボタンか `s` で出す
+stats.hidden = true;
+const statsButton = addControl(t.controls.stats, toggleStats);
+
+function toggleStats(): void {
+  stats.hidden = !stats.hidden;
+  statsButton.classList.toggle("selected", !stats.hidden);
+}
+
 window.addEventListener("keydown", (event) => {
-  if (event.key === "s") stats.hidden = !stats.hidden;
+  if (event.key === "s") toggleStats();
 });

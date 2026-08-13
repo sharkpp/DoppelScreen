@@ -6,6 +6,9 @@ const BASE: Language = "ja";
 
 // キーを有限のユニオンで持つ。綴りを間違えた参照はコンパイルで落ちる
 type Key =
+  | "viewer.controls.exitFullscreen"
+  | "viewer.controls.fullscreen"
+  | "viewer.controls.stats"
   | "viewer.error.captureFailed"
   | "viewer.error.captureStopped"
   | "viewer.error.connectFailed"
@@ -35,6 +38,9 @@ type Key =
 
 const messages: Record<Language, Record<Key, string>> = {
   "ja": {
+    "viewer.controls.exitFullscreen": "全画面を終了",
+    "viewer.controls.fullscreen": "全画面",
+    "viewer.controls.stats": "遅延",
     "viewer.error.captureFailed": "ホスト側で画面の取得を開始できませんでした",
     "viewer.error.captureStopped": "ホスト側で画面の取得が止まりました",
     "viewer.error.connectFailed": "ホストへ接続できませんでした",
@@ -63,6 +69,9 @@ const messages: Record<Language, Record<Key, string>> = {
     "viewer.status.tapToPlay": "画面をタップして再生してください",
   },
   "en": {
+    "viewer.controls.exitFullscreen": "Exit full screen",
+    "viewer.controls.fullscreen": "Full screen",
+    "viewer.controls.stats": "Latency",
     "viewer.error.captureFailed": "The host could not start capturing the screen",
     "viewer.error.captureStopped": "Screen capture stopped on the host",
     "viewer.error.connectFailed": "Could not reach the host",
@@ -120,6 +129,14 @@ function format(text: string, values: Record<string, string>): string {
 
 /** 文言。プレースホルダを持つものだけ関数になる */
 export const t = {
+  controls: {
+    /** 全画面を終了 */
+    exitFullscreen: table["viewer.controls.exitFullscreen"],
+    /** 全画面 */
+    fullscreen: table["viewer.controls.fullscreen"],
+    /** 遅延 */
+    stats: table["viewer.controls.stats"],
+  },
   error: {
     /** ホスト側で画面の取得を開始できませんでした */
     captureFailed: table["viewer.error.captureFailed"],

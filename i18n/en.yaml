@@ -108,6 +108,11 @@ viewer:
     smooth: Smooth
     changed: "Quality: {preset}"
 
+  controls:
+    fullscreen: Full screen
+    exitFullscreen: Exit full screen
+    stats: Latency
+
   error:
     invalidToken: The pairing token is not valid. Scan the QR again
     tokenExpired: The pairing token has expired. Scan the host's QR again
