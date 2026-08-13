@@ -98,6 +98,8 @@ targets:
       properties:
         CFBundleName: DoppelScreen
         CFBundleDisplayName: DoppelScreen
+        # assets/icon/doppelscreen.svg から `make icon` で作る生成物
+        CFBundleIconFile: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)

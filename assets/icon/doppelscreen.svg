@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  DoppelScreen のアイコンの原本（SPEC.md §2.3 HostUI）。
+
+  モチーフは「画面が二重像になる」。奥に半透明の分身、手前に実体を置き、
+  同じ画面がもう 1 枚どこかに現れる — ミラーリングそのものを表す。
+
+  ここが唯一の原本で、各 OS 向けのサイズは `make icon` が書き出す。
+  ビットマップを直接編集しない。
+
+  - 1024 の正方形。本体は Apple のアイコングリッドに合わせて 824×824・角丸 185
+  - 16px まで縮めても崩れないよう、要素は 2 枚の画面と台座だけに絞る
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#5B7CFF"/>
+      <stop offset="0.55" stop-color="#3D46E8"/>
+      <stop offset="1" stop-color="#2A1F9E"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.16"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DFE6FF"/>
+    </linearGradient>
+
+    <!-- 画面の輪郭。実体と分身で同じ形を使う -->
+    <g id="screen">
+      <rect width="420" height="270" rx="34"/>
+      <rect x="180" y="270" width="60" height="46"/>
+      <rect x="100" y="308" width="220" height="28" rx="14"/>
+    </g>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+
+  <g transform="translate(14 22)">
+    <!-- 分身。半透明で、実体から少しずれて重なる -->
+    <g transform="translate(324 280)" fill="url(#glass)" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="14">
+      <use href="#screen"/>
+    </g>
+
+    <!-- 実体 -->
+    <g transform="translate(252 352)">
+      <use href="#screen" fill="url(#panel)"/>
+      <!-- 表示領域。中身があることだけを示す -->
+      <rect x="44" y="44" width="332" height="182" rx="16" fill="#3D46E8" fill-opacity="0.22"/>
+    </g>
+  </g>
+</svg>

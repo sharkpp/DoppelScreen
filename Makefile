@@ -1,10 +1,11 @@
-.PHONY: i18n i18n-check macos-dev-certificate macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission latency-clock latency-analyze web-install web-build web-test e2e
+.PHONY: i18n i18n-check icon macos-dev-certificate macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission latency-clock latency-analyze web-install web-build web-test e2e
 
 BUNDLE_ID := net.sharkpp.doppelscreen
 
 MACOS_DIR := apps/macos
 WEB_DIR := apps/web
 I18N_DIR := tools/i18n
+ICON_DIR := tools/icon
 MACOS_BUILD := $(MACOS_DIR)/build
 MACOS_APP := $(MACOS_BUILD)/Build/Products/Debug/DoppelScreen.app
 
@@ -21,6 +22,11 @@ SELFTEST_ARGS ?=
 i18n:
 	@npm --prefix $(I18N_DIR) install --silent
 	@node $(I18N_DIR)/generate.mjs
+
+# アイコンの原本（assets/icon/doppelscreen.svg）を各 OS の形式へ書き出す。
+# 生成物はコミットするため、通常のビルドでは要らない。絵を直したときだけ実行する。
+icon:
+	@swift $(ICON_DIR)/generate.swift
 
 # 生成物が言語定義と食い違っていないかだけ見る
 i18n-check:
