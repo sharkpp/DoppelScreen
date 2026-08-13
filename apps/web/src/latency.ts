@@ -5,11 +5,23 @@
 
 export type StatsEntry = Record<string, unknown> & { type: string };
 
-/** 差分から求める値のための、前回の観測 */
+/**
+ * 差分から求める値のための、前回の観測。
+ *
+ * `getStats()` が返すのはほぼすべて**接続してからの累積値**なので、そのまま割ると
+ * 一生ぶんの平均になる。一度跳ねた値が下がってこない表示になり、いま何が起きているかを
+ * 読めなくなる。すべて前回との差分で見る。
+ */
 export type Sample = {
   timestampMs: number;
   framesDecoded: number;
   bytesReceived: number;
+  jitterBufferDelay: number;
+  jitterBufferEmittedCount: number;
+  totalDecodeTime: number;
+  /** 区間にフレームが 1 枚も来なかったときに持ち越す、直前の読み */
+  jitterBufferMs: number;
+  decodeMs: number;
 };
 
 export type Latency = {
@@ -49,25 +61,34 @@ export function summarize(entries: StatsEntry[], previous?: Sample): Reading {
     ? (timestampMs - previous.timestampMs) / 1000
     : 0;
 
+  const jitterBufferDelay = number(inbound, "jitterBufferDelay");
   const emitted = number(inbound, "jitterBufferEmittedCount");
+  const totalDecodeTime = number(inbound, "totalDecodeTime");
+
+  // 区間に出たフレームだけで平均する。静止していてフレームが来ない区間（SPEC.md §4.3）は
+  // 割る相手がいないので、直前の読みを持ち越す。0 を出すと「とても良い」に見えてしまう
+  const emittedDelta = emitted - (previous?.jitterBufferEmittedCount ?? 0);
+  const decodedDelta = framesDecoded - (previous?.framesDecoded ?? 0);
+
+  const jitterBufferMs =
+    emittedDelta > 0
+      ? ((jitterBufferDelay - (previous?.jitterBufferDelay ?? 0)) /
+          emittedDelta) *
+        1000
+      : (previous?.jitterBufferMs ?? 0);
+  const decodeMs =
+    decodedDelta > 0
+      ? ((totalDecodeTime - (previous?.totalDecodeTime ?? 0)) / decodedDelta) *
+        1000
+      : (previous?.decodeMs ?? 0);
 
   return {
     latency: {
-      fps:
-        elapsedSeconds > 0
-          ? (framesDecoded - previous!.framesDecoded) / elapsedSeconds
-          : 0,
+      fps: elapsedSeconds > 0 ? decodedDelta / elapsedSeconds : 0,
       width: number(inbound, "frameWidth"),
       height: number(inbound, "frameHeight"),
-      // 累積値どうしの比。1 フレームあたりの滞留時間になる
-      jitterBufferMs:
-        emitted > 0
-          ? (number(inbound, "jitterBufferDelay") / emitted) * 1000
-          : 0,
-      decodeMs:
-        framesDecoded > 0
-          ? (number(inbound, "totalDecodeTime") / framesDecoded) * 1000
-          : 0,
+      jitterBufferMs,
+      decodeMs,
       rttMs: number(pair, "currentRoundTripTime") * 1000,
       framesDropped: number(inbound, "framesDropped"),
       megabitsPerSecond:
@@ -77,7 +98,16 @@ export function summarize(entries: StatsEntry[], previous?: Sample): Reading {
             1_000_000
           : 0,
     },
-    sample: { timestampMs, framesDecoded, bytesReceived },
+    sample: {
+      timestampMs,
+      framesDecoded,
+      bytesReceived,
+      jitterBufferDelay,
+      jitterBufferEmittedCount: emitted,
+      totalDecodeTime,
+      jitterBufferMs,
+      decodeMs,
+    },
   };
 }
 
