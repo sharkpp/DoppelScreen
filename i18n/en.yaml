@@ -4,6 +4,7 @@
 host:
   menu:
     showWindow: Show Window
+    about: About DoppelScreen
     quit: Quit DoppelScreen
     stopped: Stopped
     starting: Starting…
@@ -27,16 +28,18 @@ host:
       If it looks granted but still has no effect, remove DoppelScreen from the list and add it again (development builds are signed differently each time, so they are treated as a different app).
 
   control:
-    preview: Preview
     start: Start streaming
-    stop: Stop
-
-  preview:
+    stop: Stop streaming
+    idleHint: |-
+      Press "Start streaming" to show a QR code and URL for each display.
+      Scan the QR with the device you want to view on, then approve it here.
     noDisplay: No display found
-    waitingViewer: Waiting for a viewer to open the URL
-    notServing: Press "Start streaming" to begin listening
-    awaitingApproval: Approve the request to see the screen here
-    connecting: Connecting…
+
+  about:
+    tagline: Mirrors this Mac's screen to a browser on another device on the same LAN.
+    version: "Version {version} (build {build})"
+    license: DoppelScreen itself is MIT licensed
+    showLicenses: Third-party licenses
 
   connection:
     noAddress: No LAN address found

@@ -1,5 +1,9 @@
 /* 自動生成 — 直接編集しない。i18n/*.yaml を直して `make i18n` を実行する */
 
+"host.about.license" = "DoppelScreen itself is MIT licensed";
+"host.about.showLicenses" = "Third-party licenses";
+"host.about.tagline" = "Mirrors this Mac's screen to a browser on another device on the same LAN.";
+"host.about.version" = "Version %1$@ (build %2$@)";
 "host.connection.approve" = "Approve";
 "host.connection.certificateUnavailable" = "HTTPS unavailable: %1$@";
 "host.connection.connecting" = "Connecting to %1$@";
@@ -14,9 +18,10 @@
 "host.connection.scanHint" = "Scan this QR with the camera of the device you want to view on";
 "host.connection.showQR" = "Show QR";
 "host.connection.streaming" = "Streaming to %1$@";
-"host.control.preview" = "Preview";
+"host.control.idleHint" = "Press \"Start streaming\" to show a QR code and URL for each display.\nScan the QR with the device you want to view on, then approve it here.";
+"host.control.noDisplay" = "No display found";
 "host.control.start" = "Start streaming";
-"host.control.stop" = "Stop";
+"host.control.stop" = "Stop streaming";
 "host.failure.answerRejected" = "The viewer's answer could not be accepted";
 "host.failure.certificateCreationFailed" = "Could not create the certificate";
 "host.failure.controlUnavailable" = "Could not create the control channel";
@@ -28,6 +33,7 @@
 "host.failure.viewerDisconnected" = "The connection to the viewer was lost";
 "host.failure.viewerLeft" = "The viewer disconnected";
 "host.failure.viewerPageMissing" = "The viewer page is missing from the bundle (check that apps/web was built)";
+"host.menu.about" = "About DoppelScreen";
 "host.menu.failed" = "Error";
 "host.menu.quit" = "Quit DoppelScreen";
 "host.menu.requests" = "%1$@ connection request(s)";
@@ -47,11 +53,6 @@
 "host.pairing.regenerate" = "Regenerate";
 "host.pairing.rejected" = "Regenerated after repeated wrong tokens";
 "host.pairing.token" = "Pairing token: %1$@";
-"host.preview.awaitingApproval" = "Approve the request to see the screen here";
-"host.preview.connecting" = "Connecting…";
-"host.preview.noDisplay" = "No display found";
-"host.preview.notServing" = "Press \"Start streaming\" to begin listening";
-"host.preview.waitingViewer" = "Waiting for a viewer to open the URL";
 "host.quality.balanced" = "Balanced";
 "host.quality.sharp" = "Sharp text";
 "host.quality.smooth" = "Smooth";

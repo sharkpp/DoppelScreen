@@ -6,6 +6,28 @@
 import Foundation
 
 enum L10n {
+    enum About {
+        /// 本体は MIT ライセンスです
+        static var license: String {
+            NSLocalizedString("host.about.license", comment: "")
+        }
+
+        /// 依存のライセンス表示
+        static var showLicenses: String {
+            NSLocalizedString("host.about.showLicenses", comment: "")
+        }
+
+        /// この Mac の画面を、同じ LAN の別の端末のブラウザへ複製します。
+        static var tagline: String {
+            NSLocalizedString("host.about.tagline", comment: "")
+        }
+
+        /// バージョン {version}（ビルド {build}）
+        static func version(version: String, build: String) -> String {
+            String(format: NSLocalizedString("host.about.version", comment: ""), version, build)
+        }
+    }
+
     enum Connection {
         /// 承認
         static var approve: String {
@@ -79,9 +101,14 @@ enum L10n {
     }
 
     enum Control {
-        /// プレビュー
-        static var preview: String {
-            NSLocalizedString("host.control.preview", comment: "")
+        /// 「配信を開始」を押すと、画面ごとの QR と URL が出ます。
+        static var idleHint: String {
+            NSLocalizedString("host.control.idleHint", comment: "")
+        }
+
+        /// ディスプレイが見つかりません
+        static var noDisplay: String {
+            NSLocalizedString("host.control.noDisplay", comment: "")
         }
 
         /// 配信を開始
@@ -89,7 +116,7 @@ enum L10n {
             NSLocalizedString("host.control.start", comment: "")
         }
 
-        /// 停止
+        /// 配信を停止
         static var stop: String {
             NSLocalizedString("host.control.stop", comment: "")
         }
@@ -153,6 +180,11 @@ enum L10n {
     }
 
     enum Menu {
+        /// DoppelScreen について
+        static var about: String {
+            NSLocalizedString("host.menu.about", comment: "")
+        }
+
         /// エラー
         static var failed: String {
             NSLocalizedString("host.menu.failed", comment: "")
@@ -250,33 +282,6 @@ enum L10n {
         /// 接続トークン: {token}
         static func token(token: String) -> String {
             String(format: NSLocalizedString("host.pairing.token", comment: ""), token)
-        }
-    }
-
-    enum Preview {
-        /// 接続要求を承認するとここに映ります
-        static var awaitingApproval: String {
-            NSLocalizedString("host.preview.awaitingApproval", comment: "")
-        }
-
-        /// 接続しています…
-        static var connecting: String {
-            NSLocalizedString("host.preview.connecting", comment: "")
-        }
-
-        /// ディスプレイが見つかりません
-        static var noDisplay: String {
-            NSLocalizedString("host.preview.noDisplay", comment: "")
-        }
-
-        /// 「配信を開始」で待受を始めます
-        static var notServing: String {
-            NSLocalizedString("host.preview.notServing", comment: "")
-        }
-
-        /// URL を開いたビューアからの接続を待っています
-        static var waitingViewer: String {
-            NSLocalizedString("host.preview.waitingViewer", comment: "")
         }
     }
 

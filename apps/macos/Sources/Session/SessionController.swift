@@ -38,8 +38,6 @@ final class SessionController {
     private(set) var displays: [DisplayInfo] = []
     /// 画面ごとの配信。`displays` と同じ順序で並ぶ
     private(set) var streams: [DisplayStream] = []
-    /// プレビューに映す画面。配信の対象ではなく、ホスト UI の表示先を選ぶだけ
-    private(set) var selectedDisplayID: CGDirectDisplayID?
     private(set) var serverState: ServerState = .idle
     private(set) var endpoints: [Endpoint] = []
     /// 実際に確保できたポート。希望の 8422 / 8423 が埋まっていればずれる
@@ -50,7 +48,6 @@ final class SessionController {
     /// 現在の接続トークンと残り時間（SPEC.md §5.2）。UI の QR と URL はこれに追従する
     private(set) var pairingSnapshot: PairingService.Snapshot
 
-    let previewRenderer = PreviewRenderer()
     /// トークンの発行・期限・検証。ネットワーク側のスレッドからも触られる
     let pairing = PairingService()
 
@@ -65,14 +62,6 @@ final class SessionController {
     /// トークンの残り時間を数え、期限が来たら URL / QR を作り直す
     private var pairingTicker: Task<Void, Never>?
     private var addresses: [NetworkInterface] = []
-
-    var selectedDisplay: DisplayInfo? {
-        displays.first { $0.id == selectedDisplayID }
-    }
-
-    var selectedStream: DisplayStream? {
-        streams.first { $0.id == selectedDisplayID }
-    }
 
     /// 承認待ちのビューア（SPEC.md §5.2）。ホスト UI はこれを最優先で見せる
     var approvalRequests: [DisplayStream] {
@@ -151,12 +140,6 @@ final class SessionController {
         enqueue { [weak self] in await self?.performRefreshDisplays() }
     }
 
-    /// プレビューに映す画面を選ぶ。配信には影響しない
-    func selectDisplay(_ id: CGDirectDisplayID?) {
-        selectedDisplayID = id
-        previewRenderer.source = id
-    }
-
     private func performRefreshDisplays() async {
         guard permissionGranted else { return }
 
@@ -178,16 +161,11 @@ final class SessionController {
         }
         for stream in removed { await stream.stop() }
 
-        if !displays.contains(where: { $0.id == selectedDisplayID }) {
-            selectDisplay(displays.first?.id)
-        }
         rebuildEndpoints()
     }
 
     private func makeStream(for display: DisplayInfo) -> DisplayStream {
-        let stream = DisplayStream(
-            display: display, factory: factory, preview: previewRenderer, pairing: pairing
-        )
+        let stream = DisplayStream(display: display, factory: factory, pairing: pairing)
         // 画面が落ちたときは構成が変わっている可能性が高いので一覧を取り直す
         stream.onUnexpectedStop = { [weak self] _ in self?.refreshDisplays() }
         return stream

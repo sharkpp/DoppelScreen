@@ -12,19 +12,56 @@ enum DoppelScreenMain {
     }
 }
 
+/// メニューバー常駐（`LSUIElement`）。Dock アイコンは持たない。
+///
+/// 画面を配信している間ユーザが見ているのは配信中の画面そのもので、この Mac の
+/// 作業を妨げないことが正しい振る舞いになる。ウィンドウはペアリングと承認のために
+/// 開く道具として扱い、常設しない。
 struct DoppelScreenApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var session = SessionController()
 
     var body: some Scene {
         Window("DoppelScreen", id: MainWindow.id) {
             MainView(session: session)
-                .frame(minWidth: 640, minHeight: 420)
+                .frame(minWidth: 520, minHeight: 360)
         }
-        .defaultSize(width: 960, height: 640)
+        .defaultSize(width: 680, height: 520)
+
+        Window(L10n.Menu.about, id: AboutWindow.id) {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
 
         MenuBarExtra("DoppelScreen", systemImage: "rectangle.on.rectangle") {
             MenuBarView(session: session)
         }
-        .menuBarExtraStyle(.window)
+    }
+}
+
+/// Dock アイコンを持たないアプリは、起動しても OS がウィンドウを前に出さない。
+/// **起動したのに何も出ないと、初回の権限オンボーディングに辿り着けない。**
+/// ウィンドウ自体は SwiftUI が作っているので、ここでは前に出すだけでよい。
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        showMainWindow()
+    }
+
+    /// 起動中にもう一度アプリを開こうとしたとき（Finder から叩き直したなど）
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { showMainWindow() }
+        return true
+    }
+
+    @MainActor
+    private func showMainWindow() {
+        // SwiftUI は `Window(id:)` の識別子をそのまま NSWindow に付ける。
+        // 「について」を開いた状態で起動したときに、そちらを前に出さないため名前で選ぶ
+        guard let window = NSApp.windows.first(where: {
+            $0.identifier?.rawValue == MainWindow.id
+        }) else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 }

@@ -1,5 +1,9 @@
 /* 自動生成 — 直接編集しない。i18n/*.yaml を直して `make i18n` を実行する */
 
+"host.about.license" = "本体は MIT ライセンスです";
+"host.about.showLicenses" = "依存のライセンス表示";
+"host.about.tagline" = "この Mac の画面を、同じ LAN の別の端末のブラウザへ複製します。";
+"host.about.version" = "バージョン %1$@（ビルド %2$@）";
 "host.connection.approve" = "承認";
 "host.connection.certificateUnavailable" = "HTTPS は使えません: %1$@";
 "host.connection.connecting" = "%1$@ と接続中";
@@ -14,9 +18,10 @@
 "host.connection.scanHint" = "この QR をビューアにする端末のカメラで読んでください";
 "host.connection.showQR" = "QR を表示";
 "host.connection.streaming" = "%1$@ へ配信中";
-"host.control.preview" = "プレビュー";
+"host.control.idleHint" = "「配信を開始」を押すと、画面ごとの QR と URL が出ます。\n手元の端末のカメラで QR を読み、ここで承認すると画面が映ります。";
+"host.control.noDisplay" = "ディスプレイが見つかりません";
 "host.control.start" = "配信を開始";
-"host.control.stop" = "停止";
+"host.control.stop" = "配信を停止";
 "host.failure.answerRejected" = "ビューアの応答を受け付けられませんでした";
 "host.failure.certificateCreationFailed" = "証明書を生成できませんでした";
 "host.failure.controlUnavailable" = "制御チャネルを生成できません";
@@ -28,6 +33,7 @@
 "host.failure.viewerDisconnected" = "ビューアとの接続が切れました";
 "host.failure.viewerLeft" = "ビューアが切断しました";
 "host.failure.viewerPageMissing" = "ビューアページがバンドルに含まれていません（apps/web のビルドを確認してください）";
+"host.menu.about" = "DoppelScreen について";
 "host.menu.failed" = "エラー";
 "host.menu.quit" = "DoppelScreen を終了";
 "host.menu.requests" = "%1$@ 件の接続要求";
@@ -47,11 +53,6 @@
 "host.pairing.regenerate" = "作り直す";
 "host.pairing.rejected" = "トークンの誤りが続いたため作り直しました";
 "host.pairing.token" = "接続トークン: %1$@";
-"host.preview.awaitingApproval" = "接続要求を承認するとここに映ります";
-"host.preview.connecting" = "接続しています…";
-"host.preview.noDisplay" = "ディスプレイが見つかりません";
-"host.preview.notServing" = "「配信を開始」で待受を始めます";
-"host.preview.waitingViewer" = "URL を開いたビューアからの接続を待っています";
 "host.quality.balanced" = "バランス";
 "host.quality.sharp" = "文字くっきり";
 "host.quality.smooth" = "なめらか";

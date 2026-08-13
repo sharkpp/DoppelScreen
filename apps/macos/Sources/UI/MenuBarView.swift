@@ -5,45 +5,48 @@ enum MainWindow {
     static let id = "main"
 }
 
+/// メニューバーの中身。**ふつうのメニュー**として組む（`.menuBarExtraStyle` は既定の `.menu`）。
+///
+/// ここに置くのは「状態を読む」「ウィンドウを開く」「待受を切り替える」「終える」まで。
+/// **承認はウィンドウでしか行わない**（SPEC.md §5.2）— 誰を通すかの判断は、
+/// 相手のアドレスと対象の画面が並んで見える場所でだけ押せるようにする。
 struct MenuBarView: View {
     let session: SessionController
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(indicatorColor)
-                    .frame(width: 8, height: 8)
-                Text(statusText)
-                    .font(.callout.weight(.medium))
-            }
+        Text(statusText)
 
-            // 承認はウィンドウでしか行わない。ここでは件数だけ伝えて誘導する（SPEC.md §5.2）
-            ForEach(session.streams.filter(\.isActive), id: \.id) { stream in
-                Text(stream.display.name)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            Button(L10n.Menu.showWindow) {
-                openWindow(id: MainWindow.id)
-                NSApp.activate(ignoringOtherApps: true)
-            }
-
-            Button(L10n.Menu.quit) {
-                NSApp.terminate(nil)
-            }
+        ForEach(session.streams.filter(\.isActive), id: \.id) { stream in
+            Text(stream.display.name)
         }
-        .padding(12)
-        .frame(width: 220)
+
+        Divider()
+
+        switch session.serverState {
+        case .idle, .failed:
+            Button(L10n.Control.start) { session.startServing() }
+                .disabled(session.displays.isEmpty)
+        case .starting:
+            Text(L10n.Menu.starting)
+        case .running:
+            Button(L10n.Control.stop) { session.stopServing() }
+        }
+
+        Button(L10n.Menu.showWindow) { open(MainWindow.id) }
+
+        Divider()
+
+        Button(L10n.Menu.about) { open(AboutWindow.id) }
+        Button(L10n.Menu.quit) { NSApp.terminate(nil) }
+            .keyboardShortcut("q")
     }
 
-    private var indicatorColor: Color {
-        if !session.approvalRequests.isEmpty { return .orange }
-        return session.streams.contains(where: \.isActive) ? .green : .secondary
+    /// Dock アイコンを持たないため、ウィンドウを出すだけでは前面に来ない。
+    /// 明示的にアクティブにする
+    private func open(_ id: String) {
+        openWindow(id: id)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private var statusText: String {

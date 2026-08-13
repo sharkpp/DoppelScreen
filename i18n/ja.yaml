@@ -15,6 +15,7 @@
 host:
   menu:
     showWindow: ウィンドウを表示
+    about: DoppelScreen について
     quit: DoppelScreen を終了
     stopped: 停止中
     starting: 開始中…
@@ -38,16 +39,18 @@ host:
       すでに許可済みに見えるのに反映されない場合は、リストから DoppelScreen を一度削除して追加し直してください（開発ビルドは署名が毎回変わるため、別アプリとして扱われます）。
 
   control:
-    preview: プレビュー
     start: 配信を開始
-    stop: 停止
-
-  preview:
+    stop: 配信を停止
+    idleHint: |-
+      「配信を開始」を押すと、画面ごとの QR と URL が出ます。
+      手元の端末のカメラで QR を読み、ここで承認すると画面が映ります。
     noDisplay: ディスプレイが見つかりません
-    waitingViewer: URL を開いたビューアからの接続を待っています
-    notServing: 「配信を開始」で待受を始めます
-    awaitingApproval: 接続要求を承認するとここに映ります
-    connecting: 接続しています…
+
+  about:
+    tagline: この Mac の画面を、同じ LAN の別の端末のブラウザへ複製します。
+    version: "バージョン {version}（ビルド {build}）"
+    license: 本体は MIT ライセンスです
+    showLicenses: 依存のライセンス表示
 
   connection:
     noAddress: LAN のアドレスが見つかりません

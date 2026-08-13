@@ -16,28 +16,36 @@ struct ConnectionView: View {
     @State private var expanded: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if session.endpoints.isEmpty {
-                Text(L10n.Connection.noAddress)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                pairing
-                ForEach(session.streams, id: \.id) { stream in
-                    section(for: stream)
-                }
-            }
+        // QR は大きい。開いたときに全体が見えるところまで自分で送る（下端を合わせる）
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if session.endpoints.isEmpty {
+                        Text(L10n.Connection.noAddress)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        pairing
+                        ForEach(session.streams, id: \.id) { stream in
+                            section(for: stream)
+                        }
+                    }
 
-            if let certificateError = session.certificateError {
-                Text(L10n.Connection.certificateUnavailable(reason: certificateError))
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
+                    if let certificateError = session.certificateError {
+                        Text(L10n.Connection.certificateUnavailable(reason: certificateError))
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                            .lineLimit(2)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .onChange(of: expanded) { _, url in
+                guard let url else { return }
+                withAnimation { proxy.scrollTo(url, anchor: .bottom) }
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quinary)
     }
 
     /// トークンの状態（SPEC.md §5.2）。期限は全画面で共通なので 1 か所に出す
@@ -148,6 +156,8 @@ struct ConnectionView: View {
         }
         .padding(.leading, 64)
         .padding(.vertical, 4)
+        // 開いた QR へスクロールするための目印（`expanded` と同じ URL）
+        .id(url)
     }
 
     @ViewBuilder

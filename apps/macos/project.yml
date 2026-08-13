@@ -98,6 +98,9 @@ targets:
       properties:
         CFBundleName: DoppelScreen
         CFBundleDisplayName: DoppelScreen
+        # メニューバー常駐。Dock アイコンもアプリメニューも持たない。
+        # 「◯◯ について」は OS が用意しないため自前で持つ（AboutView）
+        LSUIElement: true
         # assets/icon/doppelscreen.svg から `make icon` で作る生成物
         CFBundleIconFile: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)

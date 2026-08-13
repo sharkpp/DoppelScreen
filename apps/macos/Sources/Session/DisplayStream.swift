@@ -62,7 +62,6 @@ final class DisplayStream {
     init(
         display: DisplayInfo,
         factory: RTCPeerConnectionFactory,
-        preview: PreviewRenderer,
         pairing: PairingService
     ) {
         id = display.id
@@ -70,10 +69,8 @@ final class DisplayStream {
         self.pairing = pairing
         pipeline = VideoPipeline(factory: factory, trackID: "screen-\(display.id)")
 
-        let displayID = display.id
-        // フレームはキャプチャ用キューからプレビューと WebRTC へ直接流す。MainActor を経由させない
+        // フレームはキャプチャ用キューから WebRTC へ直接流す。MainActor を経由させない
         capturer.setFrameHandler { [pipeline] sampleBuffer in
-            preview.enqueue(sampleBuffer, from: displayID)
             pipeline.capture(sampleBuffer)
         }
         capturer.setStopHandler { [weak self] error in

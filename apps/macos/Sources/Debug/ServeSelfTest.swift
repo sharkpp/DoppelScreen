@@ -85,7 +85,6 @@ extension SelfTest {
                 ?? "ディスプレイが 1 台も見つかりません"
             return report
         }
-        session.selectDisplay(target.id)
 
         // `startServing()` は直列キューへ積むだけで即座には状態が変わらない。
         // 「`.starting` でない」で待つと積む前の `.idle` を拾って素通りする
