@@ -9,7 +9,7 @@
 // 16px 側で輪郭が濁る。ベクタのまま各サイズへ描くほうが小さい側が保つ。
 //
 // SVG の解釈は AppKit（NSImage）に任せている。外部の変換ツールを要求しない。
-// Windows / Android / iOS のホストを足すときは、ここに出力先を 1 つ追加する。
+// Windows の .ico も同じ原本から生成する。
 
 import AppKit
 
@@ -17,6 +17,7 @@ let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let source = root.appending(path: "assets/icon/doppelscreen.svg")
 let iconset = root.appending(path: "apps/macos/build/AppIcon.iconset")
 let output = root.appending(path: "apps/macos/Sources/Resources/AppIcon.icns")
+let windowsOutput = root.appending(path: "apps/windows/resources/AppIcon.ico")
 
 guard let master = NSImage(contentsOf: source) else {
     FileHandle.standardError.write(Data("原本を読めません: \(source.path)\n".utf8))
@@ -54,6 +55,20 @@ struct Failure: Error, CustomStringConvertible {
     init(_ description: String) { self.description = description }
 }
 
+extension Data {
+    mutating func appendUInt16LE(_ value: UInt16) {
+        append(UInt8(value & 0xff))
+        append(UInt8(value >> 8))
+    }
+
+    mutating func appendUInt32LE(_ value: UInt32) {
+        append(UInt8(value & 0xff))
+        append(UInt8((value >> 8) & 0xff))
+        append(UInt8((value >> 16) & 0xff))
+        append(UInt8(value >> 24))
+    }
+}
+
 do {
     // .icns が要求する組み合わせ。@2x は 1x の 2 倍のピクセル数で同じ名前を持つ
     let points = [16, 32, 128, 256, 512]
@@ -74,7 +89,31 @@ do {
     guard iconutil.terminationStatus == 0 else { throw Failure("iconutil が失敗しました") }
 
     try FileManager.default.removeItem(at: iconset)
+    let windowsSizes = [16, 24, 32, 48, 64, 128, 256]
+    let windowsImages = try windowsSizes.map(rasterize)
+    var ico = Data()
+    ico.appendUInt16LE(0)
+    ico.appendUInt16LE(1)
+    ico.appendUInt16LE(UInt16(windowsImages.count))
+    var offset = 6 + 16 * windowsImages.count
+    for (index, image) in windowsImages.enumerated() {
+        let size = windowsSizes[index]
+        ico.append(size == 256 ? 0 : UInt8(size))
+        ico.append(size == 256 ? 0 : UInt8(size))
+        ico.append(0)
+        ico.append(0)
+        ico.appendUInt16LE(1)
+        ico.appendUInt16LE(32)
+        ico.appendUInt32LE(UInt32(image.count))
+        ico.appendUInt32LE(UInt32(offset))
+        offset += image.count
+    }
+    for image in windowsImages { ico.append(image) }
+    try FileManager.default.createDirectory(at: windowsOutput.deletingLastPathComponent(),
+                                            withIntermediateDirectories: true)
+    try ico.write(to: windowsOutput)
     print("書き出し: \(output.relativePath(from: root))")
+    print("書き出し: \(windowsOutput.relativePath(from: root))")
 } catch {
     FileHandle.standardError.write(Data("\(error)\n".utf8))
     exit(1)

@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { loadCatalog, scope } from "./catalog.mjs";
 import { renderAccessor, renderStrings } from "./swift.mjs";
 import { renderModule } from "./typescript.mjs";
+import { renderCppCatalog } from "./cpp.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const source = join(root, "i18n");
@@ -39,6 +40,13 @@ const targets = [
         );
       }
       return files;
+    },
+  },
+  {
+    name: "Windows ホスト",
+    prefix: "host",
+    render(scoped) {
+      return { "apps/windows/src/generated/strings.hpp": renderCppCatalog(scoped) };
     },
   },
   {
