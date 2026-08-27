@@ -17,7 +17,7 @@ export function secureURL(
   },
   securePort: number | null,
 ): string | null {
-  if (location.protocol === "https:" || securePort === null) return null;
+  if (location.protocol === "https:" || securePort === null || securePort <= 0) return null;
   // クエリごと引き継ぐ。`?d=` を落とすと、切り替えた先で別の画面が映る（SPEC.md §5.2）
   return `https://${location.hostname}:${securePort}/${location.search}${location.hash}`;
 }

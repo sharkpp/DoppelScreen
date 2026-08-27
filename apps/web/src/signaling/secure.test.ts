@@ -47,5 +47,11 @@ describe("secureURL", () => {
         null,
       ),
     ).toBeNull();
+    expect(
+      secureURL(
+        { protocol: "http:", hostname: "h", search: "", hash: "#tok" },
+        0,
+      ),
+    ).toBeNull();
   });
 });
