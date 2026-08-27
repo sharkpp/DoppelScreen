@@ -1,7 +1,7 @@
 # サードパーティのライセンス表示
 
 DoppelScreen 本体は [MIT License](LICENSE) で配布します。
-配布物（macOS の `.app` およびビューアの HTML）には以下のソフトウェアが含まれます。
+配布物（macOS の `.app`、Windows の `.exe`、およびビューアの HTML）には以下のソフトウェアが含まれます。
 **いずれも著作権表示とライセンス全文の同梱を条件とするため、リリース時は本ファイルを配布物に含めてください。**
 
 ## ホストアプリ（macOS）に含まれるもの
@@ -17,6 +17,21 @@ DoppelScreen 本体は [MIT License](LICENSE) で配布します。
 | [swift-atomics](https://github.com/apple/swift-atomics) | Apache-2.0 | 上記の依存として静的リンク |
 | [swift-collections](https://github.com/apple/swift-collections) | Apache-2.0 | 上記の依存として静的リンク |
 | [swift-system](https://github.com/apple/swift-system) | Apache-2.0 | 上記の依存として静的リンク |
+
+## ホストアプリ（Windows）に含まれるもの
+
+| ソフトウェア | ライセンス | 含まれ方 |
+| --- | --- | --- |
+| [libwebrtc](https://webrtc.googlesource.com/src/)（shiguredo/webrtc-build M152） | BSD 3-Clauseほか | `webrtc.lib` を静的リンク |
+| [Boost.Asio / Boost.Beast](https://www.boost.org/) | Boost Software License 1.0 | 静的リンク |
+| [OpenSSL](https://www.openssl.org/) | Apache-2.0 | 静的リンク |
+| [libqrencode](https://github.com/fukuchi/libqrencode) | LGPL-2.1-or-later | 静的リンク |
+| [nlohmann/json](https://github.com/nlohmann/json) | MIT | ヘッダをコンパイル時に取り込み |
+
+Catch2 はWindows単体テストだけで使い、配布物には含めません。Windows配布時は本ファイルに加え、
+各ライブラリおよびlibwebrtcが内包する第三者コードのライセンス全文を同梱してください。
+libqrencodeを静的リンクする配布物については、LGPLが要求する再リンク手段（対応するオブジェクト
+ファイル等）も提供する必要があります。
 
 ## ビューア（HTML）に含まれるもの
 

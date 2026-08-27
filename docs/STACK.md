@@ -11,7 +11,7 @@
 | | macOS | Windows | Android | iOS | Web ビューア |
 | --- | --- | --- | --- | --- | --- |
 | 言語 | Swift | C++/WinRT | Kotlin | Swift | TypeScript |
-| UI | SwiftUI (`MenuBarExtra`) | WinUI 3 | Jetpack Compose | SwiftUI | 素の DOM |
+| UI | SwiftUI (`MenuBarExtra`) | Win32 | Jetpack Compose | SwiftUI | 素の DOM |
 | キャプチャ | ScreenCaptureKit | Windows.Graphics.Capture | MediaProjection | ReplayKit Extension | — |
 | WebRTC | `stasel/WebRTC` (SPM) | shiguredo/webrtc-build | `io.github.webrtc-sdk:android` | `stasel/WebRTC` | ブラウザ内蔵 |
 | HTTP/WS | SwiftNIO | Boost.Beast | Ktor (CIO) | SwiftNIO | — |
@@ -713,14 +713,24 @@ notarytool の資格情報は開発者ごとに用意し、リポジトリには
 | 用途 | 選定 |
 | --- | --- |
 | 言語 / ビルド | C++/WinRT + CMake + vcpkg |
-| WebRTC | [shiguredo/webrtc-build](https://github.com/shiguredo/webrtc-build) の Windows x64 ビルド済みバイナリ |
+| WebRTC | shiguredo/webrtc-build `m152.7977.0.0` の Windows x64 ビルド済みバイナリ |
 | HTTP + WebSocket + TLS | Boost.Beast（Boost.Asio 上に HTTP / WS / TLS が揃う） |
 | 証明書生成 | OpenSSL（Beast の TLS 依存として既に入る） |
-| UI | WinUI 3（非パッケージ構成 + Windows App SDK ブートストラッパ） |
+| UI | Win32（通常ウィンドウ + 通知領域） |
 
 - **C# は選ばない。** WinRT 射影で `Windows.Graphics.Capture` は扱えるが、libwebrtc をネイティブに使えない。純 C# の WebRTC 実装（SIPSorcery 等）は帯域推定が未成熟で、SPEC.md §2.4 で webrtc-rs を却下したのと同じ理由で不適。
 - エンコードは Media Foundation の H.264 ハードウェアエンコーダを `webrtc::VideoEncoderFactory` として登録する。libwebrtc の Windows ビルドは標準ではソフトウェアエンコーダしか持たないため、**ここは自前実装が必要**。macOS / Android と違って手間がかかる箇所。
-- Boost.Beast が重いと判断した場合の代替は uWebSockets。ただし TLS の取り回しは Beast の方が素直。
+- **UI は Win32 に絞る。** 必要なのは開始・停止、URL / QR、承認、通知領域だけで、
+  Windows App SDK のランタイムとパッケージ方式を増やす利点がない。キャプチャ API には
+  C++/WinRT から直接アクセスする。
+- `GraphicsCaptureItem` はモニターごとに作り、`CreateFreeThreaded` のフレームプールから
+  BGRA の D3D11 テクスチャを受ける。CPUへ読み戻さず、D3D11 Video Processor でNV12へ
+  スケール・変換して Media Foundation MFTへ渡す。
+- H.264 MFT は非同期イベント駆動で扱い、`NeedInput` の要求数を越えて投入しない。
+  遅延を積まないため未投入キューは最大2枚とする。
+- HTTP :8422 と HTTPS :8423 を同じ Beast ハンドラで待ち受ける。秘密鍵は DPAPI で
+  現在のWindowsユーザーに結び付けて保存する。
+- 画面ごとに独立したキャプチャとPeerConnectionを持ち、macOS版と同じプロトコルを使う。
 
 ---
 
@@ -788,6 +798,7 @@ macOS のビルドに Node が要るようになる。
 | `apps/macos/Sources/Resources/<言語>.lproj/Localizable.strings` | Apple 標準の `.strings` | `host.*` |
 | `apps/macos/Sources/Generated/L10n.swift` | キーと引数の型だけを持つ入り口 | `host.*` |
 | `apps/web/src/generated/strings.ts` | 全言語を埋め込んだモジュール | `viewer.*` |
+| `apps/windows/src/generated/strings.hpp` | 全言語を埋め込んだC++ヘッダ | `host.*` |
 
 - **macOS は `.strings` をそのまま吐き、言語の選択は OS に任せる。** 自前の言語選択を持つと、
   システム設定の「アプリごとの言語」が効かなくなる。`L10n` が持つのはキーの綴りと引数の型だけ。
@@ -802,13 +813,14 @@ macOS のビルドに Node が要るようになる。
 `viewer.error.*` から自分の言語で出す（`apps/web/src/errors.ts`）。`detail` は OS 由来の説明など、
 コードにできない補足だけに使う。
 
-Windows / Android / iOS のホストを足すときは、`tools/i18n/` に出力先を 1 つ追加する
+Android / iOS のホストを足すときは、`tools/i18n/` に出力先を 1 つ追加する
 （`swift.mjs` と同じ形の render 関数を書き、`generate.mjs` の `targets` に並べる）。
 
 ### 6.3 アイコン（`assets/icon/`）
 
 **原本は `assets/icon/doppelscreen.svg` の 1 枚だけ**で、各 OS のサイズは `make icon` が書き出す。
-ビットマップを直接編集しない。生成物（`apps/macos/Sources/Resources/AppIcon.icns`）はコミットする。
+ビットマップを直接編集しない。生成物（`apps/macos/Sources/Resources/AppIcon.icns` と
+`apps/windows/resources/AppIcon.ico`）はコミットする。
 
 - 変換は `tools/icon/generate.swift`。**SVG の解釈を AppKit（`NSImage`）に任せている**ため、
   外部の変換ツール（rsvg / Inkscape / ImageMagick）を要求しない。
@@ -816,8 +828,8 @@ Windows / Android / iOS のホストを足すときは、`tools/i18n/` に出力
   16px 側で輪郭が濁る。ベクタのまま各サイズへ描くほうが小さい側が保つ。
 - 絵は「画面が二重像になる」— 奥に半透明の分身、手前に実体。**16px まで縮めても崩れないよう、
   要素は 2 枚の画面と台座だけに絞っている。**
-- Windows / Android / iOS を足すときは、`generate.swift` に出力先を 1 つ追加する
-  （`.ico` / mipmap / `AppIcon.appiconset`）。原本は増やさない。
+- Android / iOS を足すときは、`generate.swift` に出力先を 1 つ追加する
+  （mipmap / `AppIcon.appiconset`）。原本は増やさない。
 
 `AboutView` はこの `.icns` を `NSImage(named: "AppIcon")` で読む。`NSApp.applicationIconImage` は
 Dock タイルを持たないアプリ（§2.18）では差し替え前の仮画像を返すことがある。
@@ -831,9 +843,9 @@ Dock タイルを持たないアプリ（§2.18）では差し替え前の仮画
 
 | 層 | 手段 | コマンド |
 | --- | --- | --- |
-| プロトコル（SPEC.md §7）のエンコード／デコード | swift-testing / Vitest。純粋関数として切り出す | `make macos-test` / `make web-test` |
-| ペアリング（期限・失敗回数・レート制限・再接続チケット） | swift-testing | `make macos-test` |
-| 解像度追従・デバウンスのロジック | Vitest（ビューア側）、swift-testing（ホスト側） | 同上 |
+| プロトコル（SPEC.md §7）のエンコード／デコード | swift-testing / Catch2 / Vitest。純粋関数として切り出す | `make macos-test` / `make windows-test` / `make web-test` |
+| ペアリング（期限・失敗回数・レート制限・再接続チケット） | swift-testing / Catch2 | `make macos-test` / `make windows-test` |
+| 解像度追従・デバウンスのロジック | Vitest、swift-testing、Catch2 | 同上 |
 | 言語定義と生成物の整合 | 生成しなおして差分を見る | `make i18n-check` |
 | end-to-end | Playwright + 実 Chrome。macOS ランナーで実ホストを起動する | `make e2e` |
 | glass-to-glass 遅延 | 手動。カメラ同時撮影（SPEC.md §3.3）。リリースごとに記録 | `make latency-clock` |
@@ -857,7 +869,7 @@ Dock タイルを持たないアプリ（§2.18）では差し替え前の仮画
 実装着手時に最新の状況を確認する。本ドキュメントの記述は前提が変わりうる。
 
 1. `stasel/WebRTC` の最新版が対応する macOS / iOS の最低バージョンと、同梱 libwebrtc の版
-2. shiguredo/webrtc-build の Windows ビルドの提供状況と版
+2. ~~shiguredo/webrtc-build の Windows ビルドの提供状況と版~~ → **`m152.7977.0.0` に固定済み。**
 3. `io.github.webrtc-sdk:android` の維持状況（供給が止まった場合の代替）
 4. ~~libwebrtc の VideoToolbox エンコーダが実際に B フレームを無効化しているか~~ → **確認済み。無効。
    長 GOP も既定で効いている**（§2.3）。代わりに level の広告が壊れていることが分かった

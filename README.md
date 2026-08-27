@@ -22,7 +22,7 @@ PC もしくはモバイル端末の画面を、同一ネットワーク上の�
 
 # 開発
 
-macOS ホスト + Web ビューアを実装中です（M1）。
+macOS / Windows ホスト + Web ビューアを実装しています。
 
 ```sh
 make macos-dev-certificate   # 初回のみ。画面収録の許可がリビルドで外れないようにする
@@ -47,6 +47,11 @@ make e2e                     # ホストを起動し、実ブラウザから繋�
 | `make latency-clock` | glass-to-glass 実測用のミリ秒カウンタを表示 |
 | `make macos-release` | 署名・notarize 済みの配布物を作る（証明書が要る） |
 | `make macos-reset-permission` | 画面収録の許可をリセット |
+| `make windows-build` | Windows x64 ホストを Release ビルド |
+| `make windows-test` | Windows側の単体テスト |
+| `make windows-run` | Windowsホストをビルドして起動 |
+
+Windows 11 での依存準備とビルド手順は [apps/windows/README.md](apps/windows/README.md) を参照してください。
 
 文言を変えるときは `i18n/ja.yaml` / `i18n/en.yaml` を直して `make i18n` を実行してください
 （[docs/STACK.md §6.2](docs/STACK.md)）。アイコンは `assets/icon/doppelscreen.svg` が原本で、
@@ -54,8 +59,9 @@ make e2e                     # ホストを起動し、実ブラウザから繋�
 
 # 状態
 
-M2（実用化）まで実装済みです。QR ペアリングとホスト承認、画面ごとの配信、解像度追従、
-品質プリセット、自動再接続、日本語／英語の切り替えが動きます。
+macOS版は M2（実用化）まで実装済みです。Windows版にも QR ペアリングとホスト承認、画面ごとの配信、
+解像度追従、品質プリセット、自動再接続、日本語／英語の切り替えを実装しました。
+Windows 11 実機でのビルド・配信・遅延検証は残っています。
 配布物の署名・notarization は手順とスクリプトを用意した段階で、実行には Developer ID 証明書が要ります。
 
 遅延（M1）は **glass-to-glass の目標 60ms に未達**で、直近の実測は中央値 67ms です

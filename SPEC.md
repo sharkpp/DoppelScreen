@@ -284,7 +284,7 @@ HTTP 経路で平文になるのはビューアページ（HTML/JS）と SDP の
 | 言語 | C++/WinRT |
 | キャプチャ | Windows.Graphics.Capture (`GraphicsCaptureItem` + `Direct3D11CaptureFramePool`) |
 | エンコード | Media Foundation の H.264 ハードウェアエンコーダを libwebrtc の `VideoEncoderFactory` として登録 |
-| HTTP / WS サーバ | cpp-httplib + 自前 WebSocket、または civetweb |
+| HTTP / WS サーバ | Boost.Beast（HTTP / WebSocket / TLS） |
 
 - UAC プロンプト・セキュアデスクトップ・ログオン画面はキャプチャできない（ユーザ権限プロセスのため）。**SYSTEM サービス化は行わない** — 入力注入が不要になった今、これらを映せないことの実害は小さい。
 - 前案にあった UIPI / 整合性レベルの制約は、入力注入をやめたため消滅した。
@@ -448,7 +448,7 @@ TypeScript + Vite。フレームワークは使わない（映像面 + オーバ
 | **M0** | 骨格と計測 | macOS ホストがメインディスプレイをキャプチャし、URL 直打ちで同一 LAN のブラウザに映る。**HTTP / HTTPS 両待受と自己署名証明書の永続化を含む**（後から足すと証明書の同一性設計をやり直すことになるため）。トークン固定。**遅延計測オーバーレイを同時に実装する** |
 | **M1** | 低遅延化 | `jitterBufferTarget = 0`、B フレーム無効、変化駆動エンコード、静止時の送出停止、長 GOP + PLI。**glass-to-glass 60ms 以下を実測で達成** → **未達。2026-08-11 の自動計測（9481 コマ）で中央値 67ms**（Wi-Fi）。有線での測り直しと内訳の取得が要る（[docs/latency-measurements.md](docs/latency-measurements.md)） |
 | **M2** | 実用化 | QR ペアリング（HTTP / HTTPS 両方 + 自己診断による誘導）+ ホスト承認、ディスプレイ選択、解像度追従、品質プリセット、権限オンボーディング、Wake Lock、フルスクリーン UI、再接続、署名・notarize 済みリリース → **実装完了。ただし署名済みリリースは Developer ID 証明書と notarytool の資格情報が要るため、手順とスクリプト（`make macos-release`）までを用意した段階**（[docs/STACK.md §2.17](docs/STACK.md)） |
-| **M3** | Windows | ホスト実装 |
+| **M3** | Windows | ホスト実装 → **実装済み。Windows 11実機でのビルド・配信・遅延検証が残る** |
 | **M4** | Android | ホスト実装（発熱・バッテリ対策込み） |
 | **M5** | iOS | ホスト実装（メモリ上限内に収める） |
 | **M6** | 追い込み | 実測に基づく最適化（必要なら WebCodecs 描画経路、HEVC/AV1 の条件付き採用） |
