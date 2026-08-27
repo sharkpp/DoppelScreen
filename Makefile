@@ -1,9 +1,10 @@
-.PHONY: i18n i18n-check icon macos-dev-certificate macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission latency-clock latency-analyze web-install web-build web-test e2e
+.PHONY: i18n i18n-check icon macos-dev-certificate macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission windows-configure windows-build windows-test windows-run latency-clock latency-analyze web-install web-build web-test e2e
 
 BUNDLE_ID := net.sharkpp.doppelscreen
 
 MACOS_DIR := apps/macos
 WEB_DIR := apps/web
+WINDOWS_DIR := apps/windows
 I18N_DIR := tools/i18n
 ICON_DIR := tools/icon
 MACOS_BUILD := $(MACOS_DIR)/build
@@ -120,6 +121,20 @@ web-build:
 
 web-test:
 	npm --prefix $(WEB_DIR) run test
+
+# Windows 11 + Visual Studio 2022 の Developer PowerShell で実行する。
+# VCPKG_ROOT と WEBRTC_ROOT の準備は apps/windows/README.md を参照。
+windows-configure:
+	cd $(WINDOWS_DIR) && cmake --preset windows-x64
+
+windows-build: windows-configure
+	cd $(WINDOWS_DIR) && cmake --build --preset windows-x64-release
+
+windows-test: windows-build
+	cd $(WINDOWS_DIR) && ctest --preset windows-x64-release
+
+windows-run: windows-build
+	$(WINDOWS_DIR)/build/Release/DoppelScreen.exe
 
 # ホストを起動して実 Chrome から繋ぎ、映像が出るところまでを通しで確認する。
 # Playwright 同梱の Chromium は H.264 を持たないため、実 Chrome を使う。
