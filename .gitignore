@@ -1,3 +1,7 @@
+.work
+*.bak
+*.log
+
 # XcodeGen が生成する。project.yml が正であり、これらはコミットしない
 *.xcodeproj
 apps/macos/Sources/Info.plist
