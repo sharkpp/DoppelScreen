@@ -3,10 +3,10 @@
 #include "video/d3d_video_frame_buffer.hpp"
 
 #include <api/video/encoded_image.h>
-#include <api/video/encoded_image_buffer.h>
 #include <codecapi.h>
 #include <mferror.h>
 #include <modules/video_coding/include/video_codec_interface.h>
+#include <modules/video_coding/include/video_error_codes.h>
 #include <wmcodecdsp.h>
 #include <algorithm>
 #include <chrono>
@@ -20,7 +20,7 @@ void set_u32(IMFAttributes* attributes, REFGUID key, UINT32 value) {
 
 void set_codec_u32(IMFTransform* transform, const GUID& key, ULONG value) {
   ComPtr<ICodecAPI> codec;
-  if (FAILED(transform->QueryInterface(IID_PPV_ARGS(codec.Put())))) return;
+  if (FAILED(transform->QueryInterface(IID_PPV_ARGS(codec.ReleaseAndGetAddressOf())))) return;
   VARIANT setting;
   VariantInit(&setting);
   setting.vt = VT_UI4;
@@ -96,7 +96,8 @@ int32_t MediaFoundationH264Encoder::Encode(
   if (!encoder_ || !callback_) return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   auto* native = dynamic_cast<D3DVideoFrameBuffer*>(frame.video_frame_buffer().get());
   if (!native) return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
-  auto sample = make_input_sample(native->texture(), frame.timestamp_us() / 10);
+  // WebRTC uses microseconds; Media Foundation sample times use 100-nanosecond units.
+  auto sample = make_input_sample(native->texture(), frame.timestamp_us() * 10);
   if (!sample) return WEBRTC_VIDEO_CODEC_ERROR;
   const auto keyframe = wants_keyframe(frame_types);
   if (keyframe) set_codec_u32(encoder_.Get(), CODECAPI_AVEncVideoForceKeyFrame, TRUE);
@@ -133,7 +134,8 @@ bool MediaFoundationH264Encoder::create_transform() {
       MFT_ENUM_FLAG_HARDWARE | MFT_ENUM_FLAG_SORTANDFILTER | MFT_ENUM_FLAG_LOCALMFT,
       &input, &output, &activations, &count);
   if (FAILED(result) || count == 0) return false;
-  const auto activate_result = activations[0]->ActivateObject(IID_PPV_ARGS(encoder_.Put()));
+  const auto activate_result =
+      activations[0]->ActivateObject(IID_PPV_ARGS(encoder_.ReleaseAndGetAddressOf()));
   for (UINT32 index = 0; index < count; ++index) activations[index]->Release();
   CoTaskMemFree(activations);
   if (FAILED(activate_result)) return false;
@@ -142,12 +144,12 @@ bool MediaFoundationH264Encoder::create_transform() {
 
 bool MediaFoundationH264Encoder::configure_transform() {
   ComPtr<IMFAttributes> attributes;
-  if (FAILED(encoder_->GetAttributes(attributes.Put()))) return false;
+  if (FAILED(encoder_->GetAttributes(attributes.ReleaseAndGetAddressOf()))) return false;
   set_u32(attributes.Get(), MF_TRANSFORM_ASYNC_UNLOCK, TRUE);
   set_u32(attributes.Get(), MF_LOW_LATENCY, TRUE);
 
   UINT reset_token = 0;
-  if (FAILED(MFCreateDXGIDeviceManager(&reset_token, device_manager_.Put())) ||
+  if (FAILED(MFCreateDXGIDeviceManager(&reset_token, device_manager_.ReleaseAndGetAddressOf())) ||
       FAILED(device_manager_->ResetDevice(device_.device(), reset_token)) ||
       FAILED(encoder_->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER,
                                       reinterpret_cast<ULONG_PTR>(device_manager_.Get())))) return false;
@@ -164,7 +166,7 @@ bool MediaFoundationH264Encoder::configure_transform() {
   }
 
   ComPtr<IMFMediaType> output_type;
-  MFCreateMediaType(output_type.Put());
+  MFCreateMediaType(output_type.ReleaseAndGetAddressOf());
   output_type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
   output_type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_H264);
   MFSetAttributeSize(output_type.Get(), MF_MT_FRAME_SIZE, width_, height_);
@@ -177,7 +179,7 @@ bool MediaFoundationH264Encoder::configure_transform() {
   if (FAILED(encoder_->SetOutputType(output_stream_, output_type.Get(), 0))) return false;
 
   ComPtr<IMFMediaType> input_type;
-  MFCreateMediaType(input_type.Put());
+  MFCreateMediaType(input_type.ReleaseAndGetAddressOf());
   input_type->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
   input_type->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_NV12);
   MFSetAttributeSize(input_type.Get(), MF_MT_FRAME_SIZE, width_, height_);
@@ -200,8 +202,10 @@ ComPtr<ID3D11Texture2D> MediaFoundationH264Encoder::convert_to_nv12(ID3D11Textur
   const auto source_height = static_cast<LONG>(description.Height);
   if (!video_device_ || processor_input_width_ != description.Width ||
       processor_input_height_ != description.Height) {
-    if (FAILED(device_.device()->QueryInterface(IID_PPV_ARGS(video_device_.Put()))) ||
-        FAILED(device_.context()->QueryInterface(IID_PPV_ARGS(video_context_.Put())))) return {};
+    if (FAILED(device_.device()->QueryInterface(
+            IID_PPV_ARGS(video_device_.ReleaseAndGetAddressOf()))) ||
+        FAILED(device_.context()->QueryInterface(
+            IID_PPV_ARGS(video_context_.ReleaseAndGetAddressOf())))) return {};
     processor_.Reset();
     processor_enumerator_.Reset();
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC description{};
@@ -211,8 +215,10 @@ ComPtr<ID3D11Texture2D> MediaFoundationH264Encoder::convert_to_nv12(ID3D11Textur
     description.OutputWidth = width_;
     description.OutputHeight = height_;
     description.Usage = D3D11_VIDEO_USAGE_PLAYBACK_NORMAL;
-    if (FAILED(video_device_->CreateVideoProcessorEnumerator(&description, processor_enumerator_.Put())) ||
-        FAILED(video_device_->CreateVideoProcessor(processor_enumerator_.Get(), 0, processor_.Put()))) return {};
+    if (FAILED(video_device_->CreateVideoProcessorEnumerator(
+            &description, processor_enumerator_.ReleaseAndGetAddressOf())) ||
+        FAILED(video_device_->CreateVideoProcessor(
+            processor_enumerator_.Get(), 0, processor_.ReleaseAndGetAddressOf()))) return {};
     processor_input_width_ = source_width;
     processor_input_height_ = source_height;
   }
@@ -222,18 +228,21 @@ ComPtr<ID3D11Texture2D> MediaFoundationH264Encoder::convert_to_nv12(ID3D11Textur
   description.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
   description.MiscFlags = 0;
   ComPtr<ID3D11Texture2D> output;
-  if (FAILED(device_.device()->CreateTexture2D(&description, nullptr, output.Put()))) return {};
+  if (FAILED(device_.device()->CreateTexture2D(
+          &description, nullptr, output.ReleaseAndGetAddressOf()))) return {};
   D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC input_description{};
   input_description.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D;
   input_description.Texture2D.ArraySlice = 0;
   ComPtr<ID3D11VideoProcessorInputView> input_view;
   if (FAILED(video_device_->CreateVideoProcessorInputView(texture, processor_enumerator_.Get(),
-                                                           &input_description, input_view.Put()))) return {};
+                                                           &input_description,
+                                                           input_view.ReleaseAndGetAddressOf()))) return {};
   D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC output_description{};
   output_description.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D;
   ComPtr<ID3D11VideoProcessorOutputView> output_view;
   if (FAILED(video_device_->CreateVideoProcessorOutputView(output.Get(), processor_enumerator_.Get(),
-                                                             &output_description, output_view.Put()))) return {};
+                                                             &output_description,
+                                                             output_view.ReleaseAndGetAddressOf()))) return {};
   RECT source{0, 0, source_width, source_height};
   RECT destination{0, 0, width_, height_};
   video_context_->VideoProcessorSetStreamSourceRect(processor_.Get(), 0, TRUE, &source);
@@ -250,9 +259,11 @@ ComPtr<IMFSample> MediaFoundationH264Encoder::make_input_sample(ID3D11Texture2D*
   auto nv12 = convert_to_nv12(texture);
   if (!nv12) return {};
   ComPtr<IMFMediaBuffer> buffer;
-  if (FAILED(MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), nv12.Get(), 0, FALSE, buffer.Put()))) return {};
+  if (FAILED(MFCreateDXGISurfaceBuffer(__uuidof(ID3D11Texture2D), nv12.Get(), 0, FALSE,
+                                       buffer.ReleaseAndGetAddressOf()))) return {};
   ComPtr<IMFSample> sample;
-  if (FAILED(MFCreateSample(sample.Put())) || FAILED(sample->AddBuffer(buffer.Get()))) return {};
+  if (FAILED(MFCreateSample(sample.ReleaseAndGetAddressOf())) ||
+      FAILED(sample->AddBuffer(buffer.Get()))) return {};
   sample->SetSampleTime(timestamp_100ns);
   sample->SetSampleDuration(10'000'000 / std::max(1, framerate_));
   return sample;
@@ -261,7 +272,8 @@ ComPtr<IMFSample> MediaFoundationH264Encoder::make_input_sample(ID3D11Texture2D*
 void MediaFoundationH264Encoder::event_loop(std::stop_token stop) {
   while (!stop.stop_requested() && events_) {
     ComPtr<IMFMediaEvent> event;
-    const auto result = events_->GetEvent(MF_EVENT_FLAG_NO_WAIT, event.Put());
+    const auto result = events_->GetEvent(MF_EVENT_FLAG_NO_WAIT,
+                                          event.ReleaseAndGetAddressOf());
     if (result == MF_E_NO_EVENTS_AVAILABLE) {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
       continue;
@@ -305,8 +317,10 @@ void MediaFoundationH264Encoder::collect_output() {
   ComPtr<IMFSample> sample;
   if ((info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES) == 0) {
     ComPtr<IMFMediaBuffer> buffer;
-    if (FAILED(MFCreateMemoryBuffer(std::max<DWORD>(info.cbSize, 4 * 1024 * 1024), buffer.Put())) ||
-        FAILED(MFCreateSample(sample.Put())) || FAILED(sample->AddBuffer(buffer.Get()))) return;
+    if (FAILED(MFCreateMemoryBuffer(std::max<DWORD>(info.cbSize, 4 * 1024 * 1024),
+                                    buffer.ReleaseAndGetAddressOf())) ||
+        FAILED(MFCreateSample(sample.ReleaseAndGetAddressOf())) ||
+        FAILED(sample->AddBuffer(buffer.Get()))) return;
   }
   MFT_OUTPUT_DATA_BUFFER output{};
   output.dwStreamID = output_stream_;
@@ -314,10 +328,19 @@ void MediaFoundationH264Encoder::collect_output() {
   DWORD status = 0;
   const auto result = encoder_->ProcessOutput(0, 1, &output, &status);
   if (output.pEvents) output.pEvents->Release();
+  if (result == MF_E_TRANSFORM_STREAM_CHANGE) {
+    // Hardware MFTs can revise the output format after the first input sample.
+    ComPtr<IMFMediaType> type;
+    if (SUCCEEDED(encoder_->GetOutputAvailableType(
+            output_stream_, 0, type.ReleaseAndGetAddressOf())))
+      encoder_->SetOutputType(output_stream_, type.Get(), 0);
+    return;
+  }
   if (FAILED(result) || !output.pSample) return;
 
   ComPtr<IMFMediaBuffer> contiguous;
-  if (FAILED(output.pSample->ConvertToContiguousBuffer(contiguous.Put()))) return;
+  if (FAILED(output.pSample->ConvertToContiguousBuffer(
+          contiguous.ReleaseAndGetAddressOf()))) return;
   BYTE* bytes = nullptr;
   DWORD length = 0;
   if (FAILED(contiguous->Lock(&bytes, nullptr, &length))) return;

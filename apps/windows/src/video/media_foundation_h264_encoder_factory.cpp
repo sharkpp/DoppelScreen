@@ -8,7 +8,9 @@
 namespace doppelscreen {
 
 std::vector<webrtc::SdpVideoFormat> MediaFoundationH264EncoderFactory::GetSupportedFormats() const {
-  return {{"H264", {{"profile-level-id", "640c34"},
+  // The encoder produces High Profile. 640c34 advertises Constrained High,
+  // which Chrome cannot match to its High Profile receiver capability.
+  return {{"H264", {{"profile-level-id", "640034"},
                     {"level-asymmetry-allowed", "1"},
                     {"packetization-mode", "1"}}}};
 }

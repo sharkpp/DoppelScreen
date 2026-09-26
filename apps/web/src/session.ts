@@ -223,7 +223,9 @@ export class ViewerSession {
       if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
       else if ("playoutDelayHint" in receiver) receiver.playoutDelayHint = 0; // 旧 Chrome 系
 
-      const stream = event.streams[0] ?? new MediaStream([event.track]);
+      // SDP の stream ID があっても、ブラウザが渡す streams[0] は空の場合がある。
+      // track イベントで渡された映像トラックをそのまま表示対象にする。
+      const stream = new MediaStream([event.track]);
       this.handlers.onStream(stream);
       // ここまで来たら繋ぎ直しは成功。次に切れたときは短い間隔から数え直す
       this.attempt = 0;

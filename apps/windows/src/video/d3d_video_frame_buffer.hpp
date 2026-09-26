@@ -7,7 +7,7 @@
 
 namespace doppelscreen {
 
-class D3DVideoFrameBuffer final : public webrtc::VideoFrameBuffer {
+class D3DVideoFrameBuffer : public webrtc::VideoFrameBuffer {
  public:
   D3DVideoFrameBuffer(Microsoft::WRL::ComPtr<ID3D11Texture2D> texture, int width, int height);
   Type type() const override { return Type::kNative; }

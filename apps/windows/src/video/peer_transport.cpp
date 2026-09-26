@@ -5,6 +5,8 @@
 #include "video/media_foundation_h264_encoder_factory.hpp"
 
 #include <api/create_peerconnection_factory.h>
+#include <api/audio_codecs/builtin_audio_decoder_factory.h>
+#include <api/audio_codecs/builtin_audio_encoder_factory.h>
 #include <api/jsep.h>
 #include <api/make_ref_counted.h>
 #include <api/rtp_parameters.h>
@@ -17,7 +19,7 @@
 
 namespace doppelscreen {
 
-class PeerTransport::VideoSource final : public webrtc::AdaptedVideoTrackSource {
+class PeerTransport::VideoSource : public webrtc::AdaptedVideoTrackSource {
  public:
   SourceState state() const override { return SourceState::kLive; }
   bool remote() const override { return false; }
@@ -26,7 +28,7 @@ class PeerTransport::VideoSource final : public webrtc::AdaptedVideoTrackSource 
   void push(const webrtc::VideoFrame& frame) { OnFrame(frame); }
 };
 
-class PeerTransport::SetLocalObserver final : public webrtc::SetLocalDescriptionObserverInterface {
+class PeerTransport::SetLocalObserver : public webrtc::SetLocalDescriptionObserverInterface {
  public:
   SetLocalObserver(PeerTransport* owner, std::string sdp)
       : owner_(owner), sdp_(std::move(sdp)) {}
@@ -39,7 +41,7 @@ class PeerTransport::SetLocalObserver final : public webrtc::SetLocalDescription
   std::string sdp_;
 };
 
-class PeerTransport::SetRemoteObserver final : public webrtc::SetRemoteDescriptionObserverInterface {
+class PeerTransport::SetRemoteObserver : public webrtc::SetRemoteDescriptionObserverInterface {
  public:
   explicit SetRemoteObserver(PeerTransport* owner) : owner_(owner) {}
   void OnSetRemoteDescriptionComplete(webrtc::RTCError error) override {
@@ -49,7 +51,7 @@ class PeerTransport::SetRemoteObserver final : public webrtc::SetRemoteDescripti
   PeerTransport* owner_;
 };
 
-class PeerTransport::CreateOfferObserver final : public webrtc::CreateSessionDescriptionObserver {
+class PeerTransport::CreateOfferObserver : public webrtc::CreateSessionDescriptionObserver {
  public:
   explicit CreateOfferObserver(PeerTransport* owner) : owner_(owner) {}
   void OnSuccess(webrtc::SessionDescriptionInterface* description) override {
@@ -83,7 +85,8 @@ bool PeerTransport::start() {
   if (!network_thread_->Start() || !worker_thread_->Start() || !signaling_thread_->Start()) return false;
   factory_ = webrtc::CreatePeerConnectionFactory(
       network_thread_.get(), worker_thread_.get(), signaling_thread_.get(), nullptr,
-      nullptr, nullptr, std::make_unique<MediaFoundationH264EncoderFactory>(device_),
+      webrtc::CreateBuiltinAudioEncoderFactory(), webrtc::CreateBuiltinAudioDecoderFactory(),
+      std::make_unique<MediaFoundationH264EncoderFactory>(device_),
       webrtc::CreateBuiltinVideoDecoderFactory(), nullptr, nullptr);
   if (!factory_) return false;
 
@@ -252,7 +255,8 @@ void PeerTransport::create_offer() {
   webrtc::PeerConnectionInterface::RTCOfferAnswerOptions options;
   options.offer_to_receive_audio = 0;
   options.offer_to_receive_video = 0;
-  peer_->CreateOffer(webrtc::make_ref_counted<CreateOfferObserver>(this), options);
+  auto observer = webrtc::make_ref_counted<CreateOfferObserver>(this);
+  peer_->CreateOffer(observer.get(), options);
 }
 
 void PeerTransport::send_offer(std::string sdp) {
