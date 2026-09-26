@@ -43,5 +43,7 @@ TEST_CASE("resume tickets are display-bound and single-use") {
 TEST_CASE("tokens have the documented shape") {
   const auto token = PairingService().snapshot().token;
   REQUIRE(token.size() == 8);
-  for (const auto value : token) REQUIRE(std::string_view("0123456789abcdefghjkmnpqrstvwxyz").contains(value));
+  for (const auto value : token) {
+    REQUIRE(std::string_view("0123456789abcdefghjkmnpqrstvwxyz").find(value) != std::string_view::npos);
+  }
 }

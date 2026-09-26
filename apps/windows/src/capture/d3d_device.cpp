@@ -11,7 +11,8 @@ D3DDevice::D3DDevice() {
   D3D_FEATURE_LEVEL selected{};
   winrt::check_hresult(D3D11CreateDevice(
       nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, levels, std::size(levels),
-      D3D11_SDK_VERSION, device_.Put(), &selected, context_.Put()));
+      D3D11_SDK_VERSION, device_.ReleaseAndGetAddressOf(), &selected,
+      context_.ReleaseAndGetAddressOf()));
 
   Microsoft::WRL::ComPtr<IDXGIDevice> dxgi;
   winrt::check_hresult(device_.As(&dxgi));

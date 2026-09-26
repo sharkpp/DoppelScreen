@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <mutex>
+#include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Graphics.Capture.h>
 #include <wrl/client.h>
 

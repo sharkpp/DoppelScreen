@@ -7,6 +7,7 @@
 #include <shlobj.h>
 #include <wincrypt.h>
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -49,8 +50,8 @@ bool load_identity(const std::filesystem::path& directory,
   }
   certificate.reset(PEM_read_X509(certificate_file, nullptr, nullptr, nullptr));
   fclose(certificate_file);
-  const std::vector<unsigned char> protected_key(
-      std::istreambuf_iterator<char>(protected_key_file), std::istreambuf_iterator<char>());
+  const std::vector<unsigned char> protected_key{
+      std::istreambuf_iterator<char>(protected_key_file), std::istreambuf_iterator<char>()};
   DATA_BLOB encrypted{static_cast<DWORD>(protected_key.size()),
                       const_cast<BYTE*>(protected_key.data())};
   DATA_BLOB clear{};
@@ -64,6 +65,28 @@ bool load_identity(const std::filesystem::path& directory,
   return std::ranges::all_of(addresses, [&](const auto& address) {
     return X509_check_ip_asc(certificate.get(), address.c_str(), 0) == 1;
   });
+}
+
+void add_dns_name(GENERAL_NAMES* names, const char* value) {
+  openssl_ptr<GENERAL_NAME, GENERAL_NAME_free> name(GENERAL_NAME_new(), GENERAL_NAME_free);
+  openssl_ptr<ASN1_IA5STRING, ASN1_IA5STRING_free> dns(ASN1_IA5STRING_new(),
+                                                       ASN1_IA5STRING_free);
+  check(name != nullptr && dns != nullptr &&
+            ASN1_STRING_set(dns.get(), value, static_cast<int>(std::strlen(value))) == 1,
+        "create DNS subjectAltName");
+  GENERAL_NAME_set0_value(name.get(), GEN_DNS, dns.release());
+  check(sk_GENERAL_NAME_push(names, name.get()) != 0, "add DNS subjectAltName");
+  name.release();
+}
+
+void add_ip_address(GENERAL_NAMES* names, const std::string& value) {
+  openssl_ptr<GENERAL_NAME, GENERAL_NAME_free> name(GENERAL_NAME_new(), GENERAL_NAME_free);
+  openssl_ptr<ASN1_OCTET_STRING, ASN1_OCTET_STRING_free> address(
+      a2i_IPADDRESS(value.c_str()), ASN1_OCTET_STRING_free);
+  check(name != nullptr && address != nullptr, "create IP subjectAltName");
+  GENERAL_NAME_set0_value(name.get(), GEN_IPADD, address.release());
+  check(sk_GENERAL_NAME_push(names, name.get()) != 0, "add IP subjectAltName");
+  name.release();
 }
 
 void save_identity(const std::filesystem::path& directory, EVP_PKEY* key, X509* certificate) {
@@ -113,14 +136,14 @@ void configure_persistent_identity(boost::asio::ssl::context& context,
                                reinterpret_cast<const unsigned char*>("DoppelScreen"), -1, -1, 0);
     X509_set_issuer_name(certificate.get(), name);
 
-    std::string san = "DNS:localhost,IP:127.0.0.1";
-    for (const auto& address : addresses) san += ",IP:" + address;
-    X509V3_CTX extension_context{};
-    X509V3_set_ctx(&extension_context, certificate.get(), certificate.get(), nullptr, nullptr, 0);
-    openssl_ptr<X509_EXTENSION, X509_EXTENSION_free> extension(
-        X509V3_EXT_conf_nid(nullptr, &extension_context, NID_subject_alt_name, san.data()),
-        X509_EXTENSION_free);
-    check(extension != nullptr && X509_add_ext(certificate.get(), extension.get(), -1) == 1,
+    openssl_ptr<GENERAL_NAMES, GENERAL_NAMES_free> names(GENERAL_NAMES_new(),
+                                                         GENERAL_NAMES_free);
+    check(names != nullptr, "create subjectAltName");
+    add_dns_name(names.get(), "localhost");
+    add_ip_address(names.get(), "127.0.0.1");
+    for (const auto& address : addresses) add_ip_address(names.get(), address);
+    check(X509_add1_ext_i2d(certificate.get(), NID_subject_alt_name, names.get(), 0,
+                            X509V3_ADD_DEFAULT) == 1,
           "subjectAltName");
     check(X509_sign(certificate.get(), key.get(), EVP_sha256()) > 0, "X509_sign");
     save_identity(directory, key.get(), certificate.get());

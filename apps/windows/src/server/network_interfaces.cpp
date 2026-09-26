@@ -1,8 +1,9 @@
 #include "server/network_interfaces.hpp"
 
+#include <winsock2.h>
+#include <windows.h>
 #include <iphlpapi.h>
 #include <ws2tcpip.h>
-#include <windows.h>
 #include <cstddef>
 #include <vector>
 

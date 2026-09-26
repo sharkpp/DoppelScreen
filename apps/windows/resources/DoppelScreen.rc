@@ -1,7 +1,7 @@
 #include <windows.h>
 
-1 ICON "resources/AppIcon.ico"
-1 RT_MANIFEST "resources/app.manifest"
+1 ICON "AppIcon.ico"
+1 RT_MANIFEST "app.manifest"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 0,1,0,0

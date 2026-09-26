@@ -1,12 +1,12 @@
 {
   "name": "doppelscreen-windows",
   "version-string": "0.1.0",
+  "builtin-baseline": "74e6536215718009aae747d86d84b78376bf9e09",
   "dependencies": [
     "boost-asio",
     "boost-beast",
     "catch2",
     "libqrencode",
-    "nlohmann-json",
-    "openssl"
+    "nlohmann-json"
   ]
 }

@@ -19,9 +19,9 @@ GraphicsCaptureItem item_for_monitor(HMONITOR monitor) {
 
 Microsoft::WRL::ComPtr<ID3D11Texture2D> texture_from_surface(
     winrt::Windows::Graphics::DirectX::Direct3D11::IDirect3DSurface const& surface) {
-  auto access = surface.as<IDirect3DDxgiInterfaceAccess>();
+  auto access = surface.as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
   Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
-  winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(texture.Put())));
+  winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(texture.ReleaseAndGetAddressOf())));
   return texture;
 }
 }  // namespace

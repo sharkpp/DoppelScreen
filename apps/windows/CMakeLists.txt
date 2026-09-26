@@ -12,7 +12,6 @@ set(CMAKE_CONFIGURATION_TYPES "Release" CACHE STRING "" FORCE)
 
 find_package(Boost REQUIRED COMPONENTS system)
 find_package(nlohmann_json CONFIG REQUIRED)
-find_package(OpenSSL REQUIRED)
 find_program(NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
 find_path(QRENCODE_INCLUDE_DIR qrencode.h REQUIRED)
 find_library(QRENCODE_LIBRARY NAMES qrencode qrencoded REQUIRED)
@@ -51,10 +50,16 @@ add_executable(DoppelScreen WIN32
   src/video/peer_transport.cpp
   resources/DoppelScreen.rc
 )
-target_include_directories(DoppelScreen PRIVATE src "${WEBRTC_ROOT}/include" "${QRENCODE_INCLUDE_DIR}")
+target_include_directories(DoppelScreen PRIVATE
+  src
+  "${WEBRTC_ROOT}/include/third_party/boringssl/src/include"
+  "${WEBRTC_ROOT}/include"
+  "${WEBRTC_ROOT}/include/third_party/abseil-cpp"
+  "${QRENCODE_INCLUDE_DIR}"
+)
 target_link_directories(DoppelScreen PRIVATE "${WEBRTC_ROOT}/lib")
 target_link_libraries(DoppelScreen PRIVATE
-  doppelscreen_core Boost::system OpenSSL::SSL OpenSSL::Crypto webrtc
+  doppelscreen_core Boost::system webrtc
   "${QRENCODE_LIBRARY}"
   d3d11 dxgi dxguid dwmapi mf mfplat mfuuid wmcodecdspuuid ws2_32 iphlpapi shell32 shcore shlwapi windowsapp runtimeobject
   advapi32 avrt crypt32 dbghelp dmoguids msdmo ole32 oleaut32 secur32 strmiids userenv winmm
@@ -63,6 +68,8 @@ target_compile_definitions(DoppelScreen PRIVATE
   NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE WEBRTC_WIN
   _WIN32_WINNT=0x0A00 WINVER=0x0A00
 )
+target_compile_options(DoppelScreen PRIVATE /utf-8 /bigobj)
+target_link_options(DoppelScreen PRIVATE /MANIFEST:NO)
 
 set(VIEWER_HTML "${CMAKE_CURRENT_BINARY_DIR}/viewer.html")
 file(GLOB_RECURSE VIEWER_SOURCES CONFIGURE_DEPENDS
