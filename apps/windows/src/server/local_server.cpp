@@ -4,6 +4,7 @@
 
 #include <boost/asio/post.hpp>
 #include <boost/asio/ssl/stream.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/ssl.hpp>
@@ -231,7 +232,12 @@ unsigned short LocalServer::bind(tcp::acceptor& acceptor, unsigned short preferr
     beast::error_code error;
     acceptor.open(tcp::v4(), error);
     if (error) continue;
-    acceptor.set_option(net::socket_base::reuse_address(true), error);
+    const BOOL exclusive = TRUE;
+    if (setsockopt(acceptor.native_handle(), SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                   reinterpret_cast<const char*>(&exclusive), sizeof(exclusive)) == SOCKET_ERROR) {
+      acceptor.close(error);
+      continue;
+    }
     acceptor.bind({tcp::v4(), port}, error);
     if (!error) {
       acceptor.listen(net::socket_base::max_listen_connections, error);
