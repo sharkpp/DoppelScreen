@@ -39,7 +39,10 @@ BOOL CALLBACK collect(HMONITOR monitor, HDC, LPRECT, LPARAM value) {
   const auto width = monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
   const auto height = monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
   const auto name = display_device.DeviceString[0] ? display_device.DeviceString : monitor_info.szDevice;
-  output.push_back({DisplayInfo{display_id(monitor_info.szDevice), utf8(name), width, height,
+  std::wstring_view identifier(monitor_info.szDevice);
+  if (identifier.starts_with(L"\\\\.\\")) identifier.remove_prefix(4);
+  const auto display_name = utf8(name) + " · " + utf8(identifier);
+  output.push_back({DisplayInfo{display_id(monitor_info.szDevice), display_name, width, height,
                                 static_cast<double>(dpi_x) / 96.0,
                                 (monitor_info.dwFlags & MONITORINFOF_PRIMARY) != 0}, monitor});
   return TRUE;
