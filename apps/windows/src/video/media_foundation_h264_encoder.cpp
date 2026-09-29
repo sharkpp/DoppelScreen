@@ -34,7 +34,9 @@ bool wants_keyframe(const std::vector<webrtc::VideoFrameType>* types) {
 }
 }  // namespace
 
-MediaFoundationH264Encoder::MediaFoundationH264Encoder(D3DDevice& device) : device_(device) {
+MediaFoundationH264Encoder::MediaFoundationH264Encoder(D3DDevice& device,
+                                                       eAVEncH264VProfile profile)
+    : device_(device), profile_(profile) {
   MFStartup(MF_VERSION, MFSTARTUP_LITE);
 }
 
@@ -174,7 +176,7 @@ bool MediaFoundationH264Encoder::configure_transform() {
   MFSetAttributeRatio(output_type.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
   output_type->SetUINT32(MF_MT_AVG_BITRATE, bitrate_bps_);
   output_type->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-  output_type->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_High);
+  output_type->SetUINT32(MF_MT_MPEG2_PROFILE, profile_);
   output_type->SetUINT32(MF_MT_MPEG2_LEVEL, eAVEncH264VLevel5_2);
   if (FAILED(encoder_->SetOutputType(output_stream_, output_type.Get(), 0))) return false;
 

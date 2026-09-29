@@ -15,7 +15,7 @@ namespace doppelscreen {
 
 class MediaFoundationH264Encoder final : public webrtc::VideoEncoder {
  public:
-  explicit MediaFoundationH264Encoder(D3DDevice& device);
+  MediaFoundationH264Encoder(D3DDevice& device, eAVEncH264VProfile profile);
   ~MediaFoundationH264Encoder() override;
 
   int InitEncode(const webrtc::VideoCodec* codec, const Settings& settings) override;
@@ -40,6 +40,7 @@ class MediaFoundationH264Encoder final : public webrtc::VideoEncoder {
   void update_bitrate();
 
   D3DDevice& device_;
+  const eAVEncH264VProfile profile_;
   Microsoft::WRL::ComPtr<IMFDXGIDeviceManager> device_manager_;
   Microsoft::WRL::ComPtr<IMFTransform> encoder_;
   Microsoft::WRL::ComPtr<IMFMediaEventGenerator> events_;

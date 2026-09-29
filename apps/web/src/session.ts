@@ -220,8 +220,12 @@ export class ViewerSession {
       // 遅延削減の最大のレバー。LAN はジッタが小さいのでバッファを捨てる（SPEC.md §3.2）
       // どちらも標準の型定義に無いため、プロパティの有無で判定する
       const receiver = event.receiver as unknown as Record<string, unknown>;
-      if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
-      else if ("playoutDelayHint" in receiver) receiver.playoutDelayHint = 0; // 旧 Chrome 系
+      try {
+        if ("jitterBufferTarget" in receiver) receiver.jitterBufferTarget = 0;
+        else if ("playoutDelayHint" in receiver) receiver.playoutDelayHint = 0; // 旧 Chrome 系
+      } catch {
+        // 遅延の調整に失敗しても映像の表示は続ける。
+      }
 
       // SDP の stream ID があっても、ブラウザが渡す streams[0] は空の場合がある。
       // track イベントで渡された映像トラックをそのまま表示対象にする。
