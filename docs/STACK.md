@@ -12,7 +12,7 @@
 | | macOS | Windows | Android | iOS | Web ビューア |
 | --- | --- | --- | --- | --- | --- |
 | 言語 | Swift | C++/WinRT | Kotlin | Swift | TypeScript |
-| UI | Flutter（ウィンドウ）+ SwiftUI (`MenuBarExtra`) | Win32 | Jetpack Compose | SwiftUI | 素の DOM |
+| UI | Flutter（ウィンドウ）+ SwiftUI (`MenuBarExtra`) | Flutter（ウィンドウ）+ Win32（通知領域） | Jetpack Compose | SwiftUI | 素の DOM |
 | キャプチャ | ScreenCaptureKit | Windows.Graphics.Capture | MediaProjection | ReplayKit Extension | — |
 | WebRTC | `stasel/WebRTC` (SPM) | shiguredo/webrtc-build | `io.github.webrtc-sdk:android` | `stasel/WebRTC` | ブラウザ内蔵 |
 | HTTP/WS | SwiftNIO | Boost.Beast | Ktor (CIO) | SwiftNIO | — |
@@ -715,7 +715,7 @@ notarytool の資格情報は開発者ごとに用意し、リポジトリには
 | 部品 | 場所 | 役割 |
 | --- | --- | --- |
 | 境界の定義 | `apps/host_ui/pigeons/host.dart` | 状態（`HostState`）と操作（`HostUIControl`）。**ここが正** |
-| 生成物 | `apps/host_ui/lib/generated/host_api.g.dart`、`Sources/HostUI/HostAPI.g.swift` | `make host-ui-generate` で作り直す。コミットする |
+| 生成物 | `apps/host_ui/lib/generated/host_api.g.dart`、`Sources/HostUI/HostAPI.g.swift`（Windows は `apps/windows/src/generated/host_api.g.{h,cpp}`、§3） | `make host-ui-generate` で作り直す。コミットする |
 | ブリッジ | `Sources/HostUI/HostUIBridge.swift` | `SessionController` を `HostState` へ写し、操作を受ける |
 | 埋め込み | `Sources/HostUI/HostUIView.swift` | `FlutterViewController` を SwiftUI のウィンドウに載せる |
 | 文言 | `apps/host_ui/lib/generated/strings.dart` | `make i18n` が `i18n/*.yaml` から作る（§6.2） |
@@ -749,13 +749,12 @@ notarytool の資格情報は開発者ごとに用意し、リポジトリには
 | WebRTC | shiguredo/webrtc-build `m152.7977.0.0` の Windows x64 ビルド済みバイナリ |
 | HTTP + WebSocket + TLS | Boost.Beast（Boost.Asio 上に HTTP / WS / TLS が揃う） |
 | 証明書生成 | OpenSSL（Beast の TLS 依存として既に入る） |
-| UI | Win32（通常ウィンドウ + 通知領域） |
+| UI | ウィンドウの中身は Flutter（`apps/host_ui`、[ADR 0002](adr/0002-host-ui-flutter.md)）。ウィンドウの枠と通知領域は Win32 |
 
 - **C# は選ばない。** WinRT 射影で `Windows.Graphics.Capture` は扱えるが、libwebrtc をネイティブに使えない。純 C# の WebRTC 実装（SIPSorcery 等）は帯域推定が未成熟で、SPEC.md §2.4 で webrtc-rs を却下したのと同じ理由で不適。
 - エンコードは Media Foundation の H.264 ハードウェアエンコーダを `webrtc::VideoEncoderFactory` として登録する。libwebrtc の Windows ビルドは標準ではソフトウェアエンコーダしか持たないため、**ここは自前実装が必要**。macOS / Android と違って手間がかかる箇所。
-- **UI は Win32 に絞る。** 必要なのは開始・停止、URL / QR、承認、通知領域だけで、
-  Windows App SDK のランタイムとパッケージ方式を増やす利点がない。キャプチャ API には
-  C++/WinRT から直接アクセスする。
+- **Windows App SDK は使わない。** ウィンドウの中身は Flutter、枠と通知領域は Win32 で足り、
+  ランタイムとパッケージ方式を増やす利点がない。キャプチャ API には C++/WinRT から直接アクセスする。
 - `GraphicsCaptureItem` はモニターごとに作り、`CreateFreeThreaded` のフレームプールから
   BGRA の D3D11 テクスチャを受ける。CPUへ読み戻さず、D3D11 Video Processor でNV12へ
   スケール・変換して Media Foundation MFTへ渡す。
@@ -764,6 +763,36 @@ notarytool の資格情報は開発者ごとに用意し、リポジトリには
 - HTTP :8422 と HTTPS :8423 を同じ Beast ハンドラで待ち受ける。秘密鍵は DPAPI で
   現在のWindowsユーザーに結び付けて保存する。
 - 画面ごとに独立したキャプチャとPeerConnectionを持ち、macOS版と同じプロトコルを使う。
+
+#### ウィンドウの中身は Flutter（[ADR 0002](adr/0002-host-ui-flutter.md)）
+
+macOS と同じ `apps/host_ui` を、Win32 のトップレベルウィンドウ（`MainWindow`）の子として載せる。
+**Windows の埋め込みは公式の add-to-app の対象外**で、Flutter の C++ client wrapper
+（`flutter::FlutterViewController`）と Flutter が生成する CMake だけで組み込んでいる。
+
+| 部品 | 場所 | 役割 |
+| --- | --- | --- |
+| 生成物 | `src/generated/host_api.g.{h,cpp}` | `apps/host_ui/pigeons/host.dart` から `make host-ui-generate` で作る。コミットする |
+| ブリッジ | `src/app/host_bridge.{hpp,cpp}` | `SessionController::Snapshot` を `HostState` へ写し、操作を受ける |
+| 埋め込み | `src/app/main_window.cpp` | `FlutterViewController` の HWND を子にし、メッセージを先に Flutter へ回す |
+
+- **エンジンはプロセスの寿命で 1 つだけ作り、ウィンドウを閉じても捨てない**（隠すだけ）。
+  捨てても Dart VM と DLL はプロセスから抜けず、作り直すとかえって膨らむ（ADR 0002 の実測）。
+- 状態は `SessionController` の変化の通知（`PostMessage`）と 1 秒ごとのタイマーで丸ごと送り直す。
+  どちらも UI スレッドで受けるので、送信の順序は自然に保たれる。
+- **コアは失敗をコード（`capture_failed` など）で持つ。** ビューアへはコードのまま送り（SPEC.md §7）、
+  UI へはブリッジが表示言語の文言に直して渡す（`HostState` の約束は「コアが組み立てた文言」）。
+- Windows には画面収録の許可の仕組みがないので、`permission` は常に `granted` を返す。
+- 最初のフレームが描けてから窓を出す（`SetNextFrameCallback`）。隠している間は Flutter が描き直さないため、
+  出すときに `ForceRedraw` する。
+- **UI スレッドは STA にし、`CoIncrementMTAUsage()` で暗黙の MTA を残す。** Flutter の IME・アクセシビリティは
+  STA を前提にし、libwebrtc のスレッドは COM を初期化しないまま Media Foundation / WinRT を呼ぶ。
+- **ビルド**: `make windows-host-ui`（`flutter build windows --config-only --release`）が
+  `apps/host_ui/windows/flutter/ephemeral/` に CMake の設定を作り、`apps/windows/CMakeLists.txt` が
+  `apps/host_ui/windows/flutter` を `add_subdirectory` で取り込む。AOT（`app.so`）と assets は
+  ビルドの中で Flutter の `flutter_assemble` が作る。`flutter_windows.dll` は実行ファイルの隣、
+  ICU・AOT・assets は `data/` に置く。
+- `apps/host_ui/windows/runner/` は `flutter build windows` が要求するので置いているだけで、使わない。
 
 ---
 

@@ -283,6 +283,7 @@ HTTP 経路で平文になるのはビューアページ（HTML/JS）と SDP の
 | 項目 | 採用技術 |
 | --- | --- |
 | 言語 | C++/WinRT |
+| UI | ウィンドウの中身は Flutter（[ADR 0002](docs/adr/0002-host-ui-flutter.md)）、通知領域のアイコンとメニューは Win32 |
 | キャプチャ | Windows.Graphics.Capture (`GraphicsCaptureItem` + `Direct3D11CaptureFramePool`) |
 | エンコード | Media Foundation の H.264 ハードウェアエンコーダを libwebrtc の `VideoEncoderFactory` として登録 |
 | HTTP / WS サーバ | Boost.Beast（HTTP / WebSocket / TLS） |

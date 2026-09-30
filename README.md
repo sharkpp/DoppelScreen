@@ -26,6 +26,7 @@ macOS / Windows ホスト + Web ビューアを実装しています。
 
 ホストのウィンドウの中身は Flutter で書いています（[ADR 0002](docs/adr/0002-host-ui-flutter.md)）。
 macOS のビルドには Xcode・XcodeGen・Node.js に加えて **Flutter SDK（3.47 以降）** が要ります。
+Windows も同じく Flutter SDK が要ります（手順は [apps/windows/README.md](apps/windows/README.md)）。
 
 ```sh
 make macos-dev-certificate   # 初回のみ。画面収録の許可がリビルドで外れないようにする

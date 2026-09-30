@@ -8,3 +8,4 @@
 - `lib/generated/strings.dart` — 文言。`i18n/*.yaml` を直して `make i18n`
 - `test/` — ウィジェットテスト。`make host-ui-test`
 - `macos/` — `flutter build macos-framework` が要求するので置いているだけ
+- `windows/` — `flutter/` を Windows ホストの CMake が取り込む。`runner/` は `flutter build windows` が要求するので置いているだけ
