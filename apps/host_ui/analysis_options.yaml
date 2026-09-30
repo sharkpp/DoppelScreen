@@ -4,5 +4,6 @@ analyzer:
   exclude:
     - build/**
     - macos/**
+    - windows/**
     # 生成物（pigeons/host.dart と i18n/*.yaml が正）
     - lib/generated/**

@@ -14,6 +14,9 @@ import 'package:pigeon/pigeon.dart';
     dartOut: 'lib/generated/host_api.g.dart',
     swiftOut: '../macos/Sources/HostUI/HostAPI.g.swift',
     swiftOptions: SwiftOptions(errorClassName: 'HostAPIError'),
+    cppHeaderOut: '../windows/src/generated/host_api.g.h',
+    cppSourceOut: '../windows/src/generated/host_api.g.cpp',
+    cppOptions: CppOptions(namespace: 'doppelscreen::ui', headerIncludePath: 'host_api.g.h'),
   ),
 )
 /// 画面収録の許可。許可の仕組みを持たない OS は常に `granted`
