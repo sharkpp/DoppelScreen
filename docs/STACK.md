@@ -12,7 +12,7 @@
 | | macOS | Windows | Android | iOS | Web ビューア |
 | --- | --- | --- | --- | --- | --- |
 | 言語 | Swift | C++/WinRT | Kotlin | Swift | TypeScript |
-| UI | SwiftUI (`MenuBarExtra`) | Win32 | Jetpack Compose | SwiftUI | 素の DOM |
+| UI | Flutter（ウィンドウ）+ SwiftUI (`MenuBarExtra`) | Win32 | Jetpack Compose | SwiftUI | 素の DOM |
 | キャプチャ | ScreenCaptureKit | Windows.Graphics.Capture | MediaProjection | ReplayKit Extension | — |
 | WebRTC | `stasel/WebRTC` (SPM) | shiguredo/webrtc-build | `io.github.webrtc-sdk:android` | `stasel/WebRTC` | ブラウザ内蔵 |
 | HTTP/WS | SwiftNIO | Boost.Beast | Ktor (CIO) | SwiftNIO | — |
@@ -111,7 +111,8 @@ Playwright でホストアプリを起動し、実ブラウザから繋いで映
 | HTTP + WebSocket | `apple/swift-nio`（`NIOHTTP1` + `NIOWebSocket`） | HTTP と WS アップグレードを 1 ポートで扱える |
 | TLS | `apple/swift-nio-transport-services`（`NIOTSListenerBootstrap`） | Network.framework 経由でシステム TLS を使う。BoringSSL を抱え込まない |
 | 自己署名証明書 | `apple/swift-certificates` + `apple/swift-crypto` | SAN 付き X.509 をコードで生成できる |
-| QR | Core Image `CIQRCodeGenerator` | 依存追加なし |
+| ホスト UI | Flutter（`apps/host_ui` を `FlutterMacOS.xcframework` + `App.xcframework` にして埋め込む） | [ADR 0002](adr/0002-host-ui-flutter.md)、§2.18 |
+| QR | [`qr_flutter`](https://pub.dev/packages/qr_flutter)（純 Dart） | ホスト UI の中で描く。ネイティブコードを持つプラグインは使わない |
 
 - デプロイメントターゲットは **macOS 14+**。ScreenCaptureKit の新しい API（`SCContentSharingPicker` 等）と Swift の並行性を素直に使える。
 - 依存はすべて SPM。CocoaPods / Carthage は使わない。
@@ -626,9 +627,8 @@ DataChannel `control` を 1 本だけ持つ（SPEC.md §7）。**offer を作る
 - **成功はレート制限の枠を使わない。** ビューアは自動で繋ぎ直す（§2.15）ため、
   正しい端末が自分で枠を食い潰す形にしてはいけない。
 - トークンの照合は定数時間で行う。LAN 内とはいえ、比較時間で当てられる余地を残さない。
-- **QR は `CIQRCodeGenerator`（CoreImage）で作る。** 外部ライブラリを足す理由がない。
-  補間して拡大するとモジュールの境界がぼけて読み取り率が落ちるので、整数倍に拡大してから
-  ラスタライズし、`Image.interpolation(.none)` で描く。
+- **QR はホスト UI（Flutter）の中で `qr_flutter` が描く。** 全 OS で同じ実装になる。
+  画面の配色に関わらず白地に黒で出す（反転した QR を読めない端末がある）。
 - QR には**トークンと画面を含む完全な URL** が入る。既定は HTTP で、HTTPS も併記する
   （SPEC.md §5.3）。URL 文字列は QR が読めない環境の代替として残す。
 
@@ -706,6 +706,38 @@ notarytool の資格情報は開発者ごとに用意し、リポジトリには
   ここでやるのは並べ替えだけでよい。
 - 「DoppelScreen について」も OS が用意しない（アプリメニューが無い）。`AboutView` を
   メニューバーから開くウィンドウとして自前で持つ。
+
+#### ウィンドウの中身は Flutter（[ADR 0002](adr/0002-host-ui-flutter.md)）
+
+メインウィンドウの中身（権限オンボーディング・待受・QR / URL・承認）は `apps/host_ui` の Flutter が描く。
+ウィンドウそのもの、メニューバー、「について」は SwiftUI のまま。
+
+| 部品 | 場所 | 役割 |
+| --- | --- | --- |
+| 境界の定義 | `apps/host_ui/pigeons/host.dart` | 状態（`HostState`）と操作（`HostUIControl`）。**ここが正** |
+| 生成物 | `apps/host_ui/lib/generated/host_api.g.dart`、`Sources/HostUI/HostAPI.g.swift` | `make host-ui-generate` で作り直す。コミットする |
+| ブリッジ | `Sources/HostUI/HostUIBridge.swift` | `SessionController` を `HostState` へ写し、操作を受ける |
+| 埋め込み | `Sources/HostUI/HostUIView.swift` | `FlutterViewController` を SwiftUI のウィンドウに載せる |
+| 文言 | `apps/host_ui/lib/generated/strings.dart` | `make i18n` が `i18n/*.yaml` から作る（§6.2） |
+
+- **コア → UI は `@FlutterApi`、UI → コアは `@HostApi`。** コアは変化のたびに状態を丸ごと送り直す
+  （`withObservationTracking`）。トークンの残り時間は `SessionController` が 1 秒ごとに進めるので、
+  UI 側で時計を持たない。送信は直列にする — 追い越されると古い状態で描き直してしまう。
+  Dart は起動直後だけ `currentState()` で取りに来る（それより前に送った状態は届かない）。
+- **エンジンはアプリの寿命で 1 つだけ作り、ウィンドウを閉じても捨てない。** 閉じると SwiftUI は
+  `FlutterViewController` を捨てるので、開き直すたびに同じエンジンへ新しいものを付ける。
+  エンジンに付けられるビューは 1 つだけで、捨てるときに外す。**SwiftUI は新しいビューを作ってから
+  古い方を捨てることがあるので、自分が付いているときだけ外す**（無条件に外すと、生きている方が外れて真っ黒になる）。
+- **Dart の `main` では、チャネルを張る前に `WidgetsFlutterBinding.ensureInitialized()` を呼ぶ。**
+  忘れると例外で `runApp` まで届かず、ウィンドウが黒いままになる（標準出力にしか出ない）。
+- 権限の見張り（未許可の間は 1 秒ごと、アプリに戻ってきたとき）はブリッジが持つ。
+  ウィンドウを閉じていても、許可されたら画面の一覧を取り直す。
+- **ビルド**: Xcode は xcframework の有無をビルドの計画時に見るため、ビルドフェーズでは作れない。
+  `scripts/build-host-ui.sh` が xcodebuild の前に `flutter build macos-framework --release --no-codesign`
+  を走らせ、`build/HostUI/Release/` に置く（Makefile と `release.sh` から呼ぶ）。Dart 側が変わっていなければ飛ばす。
+  開発ビルドでも Release（AOT）の framework を使う。署名は埋め込むときに Xcode が行う。
+- `apps/host_ui/macos/` は `flutter build macos-framework` が要求するので置いているだけで、アプリとしては使わない。
+- UI のロジックは `apps/host_ui/test/` のウィジェットテストで、コアの代わりを差し込んで確かめる（`make host-ui-test`）。
 
 ---
 
@@ -800,11 +832,15 @@ macOS のビルドに Node が要るようになる。
 | `apps/macos/Sources/Generated/L10n.swift` | キーと引数の型だけを持つ入り口 | `host.*` |
 | `apps/web/src/generated/strings.ts` | 全言語を埋め込んだモジュール | `viewer.*` |
 | `apps/windows/src/generated/strings.hpp` | 全言語を埋め込んだC++ヘッダ | `host.*` |
+| `apps/host_ui/lib/generated/strings.dart` | 全言語を埋め込んだ Dart（ホスト UI、§2.18） | `host.*` |
 
 - **macOS は `.strings` をそのまま吐き、言語の選択は OS に任せる。** 自前の言語選択を持つと、
   システム設定の「アプリごとの言語」が効かなくなる。`L10n` が持つのはキーの綴りと引数の型だけ。
 - **ビューアは全言語をコードに埋め込む。** 単一 HTML で配信する（§6.1）以上、言語ファイルを
   実行時に取りに行く経路を持てない。選択は読み込み時に 1 回だけ（`navigator.languages`）。
+- **ホスト UI（Flutter）も全言語を埋め込み、起動時に 1 回だけ選ぶ。** Flutter の gen-l10n（ARB）は
+  持ち込まない。選び方は `.lproj` と揃える（言語だけで照合し、合わなければ基準言語の `ja`）。
+  OS が渡す優先言語にはアプリごとの言語設定も効いている。
 - 置き換えは `{name}`。訳文で語順が変わってよいように、`.strings` へは番号付きの
   書式指定子（`%1$@`）で書き出す。訳が欠けていたり置き換えの名前が食い違うと `make i18n` が落ちる。
 

@@ -24,6 +24,9 @@ PC もしくはモバイル端末の画面を、同一ネットワーク上の�
 
 macOS / Windows ホスト + Web ビューアを実装しています。
 
+ホストのウィンドウの中身は Flutter で書いています（[ADR 0002](docs/adr/0002-host-ui-flutter.md)）。
+macOS のビルドには Xcode・XcodeGen・Node.js に加えて **Flutter SDK（3.47 以降）** が要ります。
+
 ```sh
 make macos-dev-certificate   # 初回のみ。画面収録の許可がリビルドで外れないようにする
 make macos-run               # ホストアプリをビルドして起動する
@@ -39,6 +42,8 @@ make e2e                     # ホストを起動し、実ブラウザから繋�
 | `make macos-run` | ホストアプリをビルドして起動 |
 | `make macos-test` | ホスト側の単体テスト（ペアリング・プロトコル・プリセット） |
 | `make web-test` | ビューアの単体テスト |
+| `make host-ui-test` | ホスト UI（Flutter）のウィジェットテスト |
+| `make host-ui-generate` | ホスト UI とコアの境界（`apps/host_ui/pigeons/host.dart`）から各言語の型を生成 |
 | `make e2e` | ホスト + 実ブラウザの通し確認（遅延の内訳も記録する） |
 | `make i18n` | 言語定義（`i18n/*.yaml`）を各プラットフォームの形式へ変換 |
 | `make icon` | アイコンの原本（`assets/icon/*.svg`）を各 OS のサイズへ書き出す |

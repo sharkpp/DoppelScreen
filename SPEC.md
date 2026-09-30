@@ -83,6 +83,7 @@
 | --- | --- | --- |
 | プロトコル（§7） | ✅ 共通 | 本ドキュメント |
 | ビューア | ✅ 1 実装 | TypeScript / Vite |
+| ホスト UI（ウィンドウの中身） | ✅ 1 実装 | Flutter（[ADR 0002](docs/adr/0002-host-ui-flutter.md)）。コアとは Pigeon で繋ぐ |
 | WebRTC スタック | ⚠️ 同一ライブラリ、バインディングは各言語 | libwebrtc |
 | キャプチャ・HTTP サーバ・UI | ❌ 各プラットフォーム固有 | Swift / C++ / Kotlin |
 
@@ -261,7 +262,7 @@ HTTP 経路で平文になるのはビューアページ（HTML/JS）と SDP の
 
 | 項目 | 採用技術 |
 | --- | --- |
-| 言語 / UI | Swift / SwiftUI（`MenuBarExtra` によるメニューバー常駐） |
+| 言語 / UI | Swift。ウィンドウの中身は Flutter（[ADR 0002](docs/adr/0002-host-ui-flutter.md)）、メニューバー常駐は SwiftUI（`MenuBarExtra`） |
 | キャプチャ | ScreenCaptureKit (`SCStream`) — macOS 12.3+ |
 | エンコード | VideoToolbox（libwebrtc の Apple エンコーダファクトリ） |
 | HTTP / WS サーバ | Network.framework（`NWListener`） |
@@ -421,6 +422,7 @@ TypeScript + Vite。フレームワークは使わない（映像面 + オーバ
 │   ├── i18n/                言語定義を各プラットフォームの形式へ変換する
 │   └── icon/                アイコンの原本を各 OS のサイズへ書き出す
 ├── apps/
+│   ├── host_ui/             ホスト UI（Flutter）。全 OS のウィンドウの中身（ADR 0002）
 │   ├── macos/               Swift / SwiftUI（M0〜）
 │   ├── macos/Tests/         実機の要らない層の単体テスト（§11-6）
 │   ├── web/                 TypeScript + Vite
