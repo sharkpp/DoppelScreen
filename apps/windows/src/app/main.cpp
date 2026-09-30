@@ -15,7 +15,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     CloseHandle(single_instance);
     return 0;
   }
-  winrt::init_apartment(winrt::apartment_type::multi_threaded);
+  // UI スレッドは STA（Flutter の IME・アクセシビリティが前提にする）。
+  // libwebrtc のスレッドは COM を初期化せずに Media Foundation / WinRT を呼ぶため、
+  // プロセスに暗黙の MTA を残しておく
+  winrt::init_apartment(winrt::apartment_type::single_threaded);
+  CO_MTA_USAGE_COOKIE mta{};
+  winrt::check_hresult(CoIncrementMTAUsage(&mta));
   try {
     doppelscreen::MainWindow window(instance);
     const auto result = window.run();

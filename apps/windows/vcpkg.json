@@ -6,7 +6,6 @@
     "boost-asio",
     "boost-beast",
     "catch2",
-    "libqrencode",
     "nlohmann-json"
   ]
 }

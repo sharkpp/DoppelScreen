@@ -13,8 +13,6 @@ set(CMAKE_CONFIGURATION_TYPES "Release" CACHE STRING "" FORCE)
 find_package(Boost REQUIRED COMPONENTS system)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_program(NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
-find_path(QRENCODE_INCLUDE_DIR qrencode.h REQUIRED)
-find_library(QRENCODE_LIBRARY NAMES qrencode qrencoded REQUIRED)
 
 set(WEBRTC_ROOT "" CACHE PATH "Extracted shiguredo webrtc-build directory")
 if(NOT EXISTS "${WEBRTC_ROOT}/include" OR NOT EXISTS "${WEBRTC_ROOT}/lib/webrtc.lib")
@@ -24,6 +22,22 @@ file(READ "${WEBRTC_ROOT}/VERSIONS" WEBRTC_VERSIONS)
 if(NOT WEBRTC_VERSIONS MATCHES "WEBRTC_BUILD_VERSION=152\\.7977\\.0\\.0")
   message(FATAL_ERROR "DoppelScreen requires shiguredo webrtc-build m152.7977.0.0")
 endif()
+
+# ホスト UI（apps/host_ui の Flutter、docs/adr/0002-host-ui-flutter.md）。Flutter が生成する CMake を
+# そのまま取り込み、flutter_windows.dll・C++ の client wrapper・AOT（app.so）の組み立てを任せる。
+# runner は使わない（トップレベルのウィンドウは MainWindow が持つ）。
+# ephemeral/ は `make windows-host-ui`（flutter build windows --config-only）が作る
+set(HOST_UI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../host_ui")
+if(NOT EXISTS "${HOST_UI_DIR}/windows/flutter/ephemeral/generated_config.cmake")
+  message(FATAL_ERROR "Run `make windows-host-ui` first (flutter build windows --config-only --release in apps/host_ui)")
+endif()
+# Flutter の CMake が wrapper のターゲットに当てる設定（runner のテンプレートと同じ）
+function(apply_standard_settings TARGET)
+  target_compile_features(${TARGET} PUBLIC cxx_std_17)
+  target_compile_options(${TARGET} PRIVATE /W4 /WX /wd4100 /EHsc)
+  target_compile_definitions(${TARGET} PRIVATE UNICODE _UNICODE)
+endfunction()
+add_subdirectory("${HOST_UI_DIR}/windows/flutter" flutter)
 
 add_library(doppelscreen_core
   src/core/pairing_service.cpp
@@ -37,6 +51,8 @@ target_compile_definitions(doppelscreen_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN
 add_executable(DoppelScreen WIN32
   src/app/main.cpp
   src/app/main_window.cpp
+  src/app/host_bridge.cpp
+  src/generated/host_api.g.cpp
   src/capture/d3d_device.cpp
   src/capture/display_catalog.cpp
   src/capture/screen_capturer.cpp
@@ -55,12 +71,10 @@ target_include_directories(DoppelScreen PRIVATE
   "${WEBRTC_ROOT}/include/third_party/boringssl/src/include"
   "${WEBRTC_ROOT}/include"
   "${WEBRTC_ROOT}/include/third_party/abseil-cpp"
-  "${QRENCODE_INCLUDE_DIR}"
 )
 target_link_directories(DoppelScreen PRIVATE "${WEBRTC_ROOT}/lib")
 target_link_libraries(DoppelScreen PRIVATE
-  doppelscreen_core Boost::system webrtc
-  "${QRENCODE_LIBRARY}"
+  doppelscreen_core Boost::system webrtc flutter flutter_wrapper_app
   d3d11 dxgi dxguid dwmapi mf mfplat mfuuid wmcodecdspuuid ws2_32 iphlpapi shell32 shcore shlwapi windowsapp runtimeobject
   advapi32 avrt crypt32 dbghelp dmoguids msdmo ole32 oleaut32 secur32 strmiids userenv winmm
 )
@@ -95,6 +109,18 @@ add_custom_command(TARGET DoppelScreen POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${CMAKE_CURRENT_SOURCE_DIR}/../../THIRD-PARTY-NOTICES.md"
           "$<TARGET_FILE_DIR:DoppelScreen>/THIRD-PARTY-NOTICES.md"
+  # ホスト UI: エンジンの DLL を実行ファイルの隣に、ICU と AOT と assets を data/ に置く（DartProject(L"data")）
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different "${FLUTTER_LIBRARY}" "$<TARGET_FILE_DIR:DoppelScreen>"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:DoppelScreen>/data"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${FLUTTER_ICU_DATA_FILE}" "${AOT_LIBRARY}" "$<TARGET_FILE_DIR:DoppelScreen>/data"
+  COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:DoppelScreen>/data/flutter_assets"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          "${PROJECT_BUILD_DIR}flutter_assets" "$<TARGET_FILE_DIR:DoppelScreen>/data/flutter_assets"
+  # Flutter のエンジンと Dart パッケージのライセンス全文。gzip の NOTICES.Z を読める形で並べる
+  COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+          "${CMAKE_CURRENT_SOURCE_DIR}/scripts/extract-flutter-notices.ps1"
+          "${PROJECT_BUILD_DIR}flutter_assets/NOTICES.Z" "$<TARGET_FILE_DIR:DoppelScreen>/Flutter-NOTICES.txt"
 )
 
 include(CTest)

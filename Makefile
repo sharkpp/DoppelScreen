@@ -1,4 +1,4 @@
-.PHONY: i18n i18n-check icon host-ui-generate host-ui-test macos-dev-certificate macos-host-ui macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission windows-configure windows-build windows-test windows-run latency-clock latency-analyze web-install web-build web-test e2e
+.PHONY: i18n i18n-check icon host-ui-generate host-ui-test macos-dev-certificate macos-host-ui macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission windows-host-ui windows-configure windows-build windows-test windows-run latency-clock latency-analyze web-install web-build web-test e2e
 
 BUNDLE_ID := net.sharkpp.doppelscreen
 
@@ -138,7 +138,12 @@ web-test:
 
 # Windows 11 + Visual Studio 2022 の Developer PowerShell で実行する。
 # VCPKG_ROOT と WEBRTC_ROOT の準備は apps/windows/README.md を参照。
-windows-configure:
+# ホスト UI（Flutter）を取り込むための CMake の設定（windows/flutter/ephemeral/）を作る。
+# 中身の組み立て（AOT・assets）は windows-build の中で Flutter の CMake が行う
+windows-host-ui:
+	cd $(HOST_UI_DIR) && flutter build windows --config-only --release
+
+windows-configure: windows-host-ui
 	cd $(WINDOWS_DIR) && cmake --preset windows-x64
 
 windows-build: windows-configure
