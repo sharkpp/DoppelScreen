@@ -19,11 +19,19 @@ enum DoppelScreenMain {
 /// 開く道具として扱い、常設しない。
 struct DoppelScreenApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var session = SessionController()
+    @State private var session: SessionController
+    /// ウィンドウの中身を描く Flutter のエンジン。閉じても残す（docs/adr/0002-host-ui-flutter.md）
+    @State private var hostUI: HostUIBridge
+
+    init() {
+        let session = SessionController()
+        _session = State(initialValue: session)
+        _hostUI = State(initialValue: HostUIBridge(session: session))
+    }
 
     var body: some Scene {
         Window("DoppelScreen", id: MainWindow.id) {
-            MainView(session: session)
+            HostUIView(bridge: hostUI)
                 .frame(minWidth: 520, minHeight: 360)
         }
         .defaultSize(width: 680, height: 520)

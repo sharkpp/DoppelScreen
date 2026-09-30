@@ -1,10 +1,11 @@
-.PHONY: i18n i18n-check icon macos-dev-certificate macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission windows-configure windows-build windows-test windows-run latency-clock latency-analyze web-install web-build web-test e2e
+.PHONY: i18n i18n-check icon host-ui-generate host-ui-test macos-dev-certificate macos-host-ui macos-generate macos-build macos-run macos-test macos-selftest macos-serve macos-release macos-clean macos-reset-permission windows-configure windows-build windows-test windows-run latency-clock latency-analyze web-install web-build web-test e2e
 
 BUNDLE_ID := net.sharkpp.doppelscreen
 
 MACOS_DIR := apps/macos
 WEB_DIR := apps/web
 WINDOWS_DIR := apps/windows
+HOST_UI_DIR := apps/host_ui
 I18N_DIR := tools/i18n
 ICON_DIR := tools/icon
 MACOS_BUILD := $(MACOS_DIR)/build
@@ -39,7 +40,20 @@ i18n-check:
 macos-dev-certificate:
 	@$(MACOS_DIR)/scripts/create-dev-certificate.sh
 
-macos-generate:
+# ホスト UI（Flutter）と各 OS のコアの境界を、apps/host_ui/pigeons/host.dart から生成する。
+# 生成物はコミットするため、通常のビルドでは要らない。境界を直したときだけ実行する
+host-ui-generate:
+	cd $(HOST_UI_DIR) && flutter pub get && dart run pigeon --input pigeons/host.dart
+
+# ホスト UI のウィジェットテスト。コアの代わりを差し込むので、ネイティブ側のビルドは要らない
+host-ui-test:
+	cd $(HOST_UI_DIR) && flutter test
+
+# ホスト UI を xcframework にする。Xcode は計画時に xcframework の有無を見るので、ビルドより前に作る
+macos-host-ui:
+	@$(MACOS_DIR)/scripts/build-host-ui.sh
+
+macos-generate: macos-host-ui
 	cd $(MACOS_DIR) && xcodegen generate
 
 macos-build: macos-generate

@@ -31,6 +31,9 @@ OUTPUT="$MACOS_DIR/dist"
 
 : "${SIGNING_IDENTITY:?SIGNING_IDENTITY を指定してください（例: \"Developer ID Application: Name (TEAMID)\"）}"
 
+echo "==> ホスト UI（Flutter）をビルド"
+"$MACOS_DIR/scripts/build-host-ui.sh"
+
 echo "==> プロジェクトを生成"
 (cd "$MACOS_DIR" && xcodegen generate)
 

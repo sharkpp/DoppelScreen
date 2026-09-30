@@ -45,6 +45,12 @@ targets:
     sources:
       - path: Sources
     dependencies:
+      # ウィンドウの中身（apps/host_ui）。`scripts/build-host-ui.sh` が作る
+      # （docs/adr/0002-host-ui-flutter.md）
+      - framework: build/HostUI/Release/FlutterMacOS.xcframework
+        embed: true
+      - framework: build/HostUI/Release/App.xcframework
+        embed: true
       - package: WebRTC
       - package: SwiftNIO
         product: NIOCore
@@ -119,6 +125,8 @@ targets:
         # @main を持つ。テストバンドルに入れられない
         excludes:
           - "App/**"
+          # Flutter のエンジンに依存する。テストは UI を起動しない
+          - "HostUI/**"
       - path: Tests
     dependencies:
       - package: WebRTC
