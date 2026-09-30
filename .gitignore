@@ -4,6 +4,8 @@
 
 # XcodeGen が生成する。project.yml が正であり、これらはコミットしない
 *.xcodeproj
+# Flutter が生成し、`flutter build macos-framework` が要求する。XcodeGen の対象ではない
+!apps/host_ui/macos/Runner.xcodeproj
 apps/macos/Sources/Info.plist
 
 # Xcode

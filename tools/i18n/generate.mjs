@@ -17,6 +17,7 @@ import { loadCatalog, scope } from "./catalog.mjs";
 import { renderAccessor, renderStrings } from "./swift.mjs";
 import { renderModule } from "./typescript.mjs";
 import { renderCppCatalog } from "./cpp.mjs";
+import { renderDart } from "./dart.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const source = join(root, "i18n");
@@ -40,6 +41,15 @@ const targets = [
         );
       }
       return files;
+    },
+  },
+  {
+    // ウィンドウの中身は全 OS で共通の Flutter（docs/adr/0002-host-ui-flutter.md）。
+    // トレイ / メニューバーなど、ネイティブ側に残る文言は各 OS の出力を使う
+    name: "ホスト UI（Flutter）",
+    prefix: "host",
+    render(scoped) {
+      return { "apps/host_ui/lib/generated/strings.dart": renderDart(scoped) };
     },
   },
   {
