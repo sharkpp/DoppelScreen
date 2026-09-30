@@ -19,7 +19,8 @@ class SessionController::Stream : public std::enable_shared_from_this<Stream> {
 
   StreamSnapshot snapshot() const {
     std::scoped_lock lock(mutex_);
-    return {display_.info, state_, connection_ ? connection_->remote_address() : "", error_};
+    return {display_.info, state_, connection_ ? connection_->remote_address() : "", error_,
+            quality_, target_width_, target_height_};
   }
 
   void update(DisplayCatalog::Entry display) {
@@ -258,6 +259,7 @@ void SessionController::start_serving() {
       addresses_ = addresses;
       port_ = listening.port;
       secure_port_ = listening.secure_port;
+      certificate_error_ = listening.certificate_error;
       server_state_ = ServerState::running;
       rebuild_endpoints(token);
     }
@@ -284,6 +286,7 @@ void SessionController::stop_serving() {
     endpoints_.clear();
     endpoint_token_.clear();
     port_ = secure_port_ = 0;
+    certificate_error_.clear();
   }
   changed();
 }
@@ -308,7 +311,7 @@ SessionController::Snapshot SessionController::snapshot() {
   {
     std::scoped_lock lock(mutex_);
     if (endpoint_token_ != pairing.token) rebuild_endpoints(pairing.token);
-    result = {server_state_, server_error_, pairing};
+    result = {server_state_, server_error_, certificate_error_, pairing};
     result.endpoints = endpoints_;
     streams = streams_;
   }

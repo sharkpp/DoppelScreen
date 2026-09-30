@@ -34,10 +34,16 @@ class SessionController {
     StreamState state{StreamState::idle};
     std::string remote_address;
     std::string error;
+    QualityPreset quality{QualityPreset::sharp};
+    // ビューアの表示サイズへ追従した送出解像度（SPEC.md §7.1）
+    int width{};
+    int height{};
   };
   struct Snapshot {
     ServerState server_state{ServerState::idle};
     std::string server_error;
+    // 証明書を用意できず HTTP だけで動いているときの理由
+    std::string certificate_error;
     PairingService::Snapshot pairing;
     std::vector<StreamSnapshot> streams;
     std::vector<Endpoint> endpoints;
@@ -69,6 +75,7 @@ class SessionController {
   mutable std::mutex mutex_;
   ServerState server_state_{ServerState::idle};
   std::string server_error_;
+  std::string certificate_error_;
   std::vector<std::shared_ptr<Stream>> streams_;
   std::vector<NetworkInterface> addresses_;
   std::vector<Endpoint> endpoints_;

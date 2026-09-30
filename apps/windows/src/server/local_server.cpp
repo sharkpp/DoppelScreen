@@ -196,16 +196,18 @@ LocalServer::Listening LocalServer::start(const std::filesystem::path& viewer_ht
   viewer_ = read_file(viewer_html);
   handler_ = std::move(handler);
   const auto port = bind(plain_, 8422);
+  std::string certificate_error;
   try {
     configure_persistent_identity(tls_, certificate_addresses);
     secure_port_ = bind(secure_, 8423);
-  } catch (...) {
+  } catch (const std::exception& error) {
     secure_port_ = 0;
+    certificate_error = error.what();
   }
   accept_plain();
   if (secure_port_) accept_secure();
   thread_ = std::jthread([this] { io_.run(); });
-  return {port, secure_port_};
+  return {port, secure_port_, std::move(certificate_error)};
 }
 
 void LocalServer::stop() {

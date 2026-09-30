@@ -15,7 +15,12 @@ namespace doppelscreen {
 
 class LocalServer {
  public:
-  struct Listening { unsigned short port{}; unsigned short secure_port{}; };
+  struct Listening {
+    unsigned short port{};
+    // 証明書を用意できなかったときは 0 で、理由を certificate_error に入れる。HTTP だけで動く
+    unsigned short secure_port{};
+    std::string certificate_error;
+  };
   using ConnectionHandler = std::function<void(SignalingConnectionPtr)>;
 
   LocalServer();
