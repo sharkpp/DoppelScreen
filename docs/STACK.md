@@ -2,7 +2,8 @@
 
 [SPEC.md](../SPEC.md) が「何を作るか」、本ドキュメントが「何で、どう作るか」を扱う。
 
-ホストは 4 プラットフォームすべてネイティブ実装する。Dart/Flutter による共通化は検討のうえ却下した（[ADR 0001](adr/0001-host-implementation-stack.md)）。
+ホストのコア（キャプチャ・エンコード・WebRTC・LocalServer・セッション管理）は 4 プラットフォームすべてネイティブ実装する。ホスト全体の Dart/Flutter による共通化は検討のうえ却下した（[ADR 0001](adr/0001-host-implementation-stack.md)）。
+ただし **UI 層（ウィンドウの中身）に限っては Flutter で 1 実装にする**（[ADR 0002](adr/0002-host-ui-flutter.md)）。トレイ / メニューバーはネイティブのまま。
 
 ---
 
