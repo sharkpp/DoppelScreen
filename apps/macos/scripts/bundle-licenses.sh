@@ -30,4 +30,13 @@ else
   echo "warning: 依存のチェックアウトが見つかりません（$CHECKOUTS）" >&2
 fi
 
+# ホスト UI（Flutter）のエンジンと Dart パッケージのライセンスは、Flutter が
+# App.framework に gzip で同梱している（flutter_assets/NOTICES.Z）。読める形で並べる
+NOTICES="${BUILT_PRODUCTS_DIR:?}/${FRAMEWORKS_FOLDER_PATH:?}/App.framework/Resources/flutter_assets/NOTICES.Z"
+if [ -f "$NOTICES" ]; then
+  gunzip -c < "$NOTICES" > "$DESTINATION/Flutter-NOTICES.txt"
+else
+  echo "warning: ホスト UI のライセンス表示が見つかりません（$NOTICES）" >&2
+fi
+
 echo "ライセンス表示を $DESTINATION へ配置しました"

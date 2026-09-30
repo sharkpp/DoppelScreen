@@ -17,6 +17,14 @@ DoppelScreen 本体は [MIT License](LICENSE) で配布します。
 | [swift-atomics](https://github.com/apple/swift-atomics) | Apache-2.0 | 上記の依存として静的リンク |
 | [swift-collections](https://github.com/apple/swift-collections) | Apache-2.0 | 上記の依存として静的リンク |
 | [swift-system](https://github.com/apple/swift-system) | Apache-2.0 | 上記の依存として静的リンク |
+| [Flutter](https://github.com/flutter/flutter)（エンジンとフレームワーク。ホスト UI、[ADR 0002](docs/adr/0002-host-ui-flutter.md)） | BSD 3-Clause ほか（エンジンが内包する第三者コードを含む） | `FlutterMacOS.framework` として同梱 |
+| [Dart](https://github.com/dart-lang/sdk)（ランタイム） | BSD 3-Clause | `App.framework` に AOT で同梱 |
+| [qr_flutter](https://github.com/theyakka/qr.flutter) / [qr](https://github.com/kevmoo/qr.dart) | BSD 3-Clause | `App.framework` に AOT で同梱 |
+
+Flutter のエンジンと Dart パッケージのライセンス全文は、Flutter がビルド時に集めて
+`App.framework` に入れている（`flutter_assets/NOTICES.Z`）。ビルドフェーズでこれを展開し、
+`Contents/Resources/Licenses/Flutter-NOTICES.txt` として並べている。
+[pigeon](https://pub.dev/packages/pigeon) と flutter_lints / flutter_test はコード生成・検査・テストだけで使い、配布物には含まれない。
 
 ## ホストアプリ（Windows）に含まれるもの
 
