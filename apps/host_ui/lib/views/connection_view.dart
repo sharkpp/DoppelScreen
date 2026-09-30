@@ -26,6 +26,10 @@ class ConnectionView extends StatefulWidget {
 }
 
 class _ConnectionViewState extends State<ConnectionView> {
+  /// インタフェース名の欄。Windows の名前（「vEthernet (Default Switch)」など）は長いので、
+  /// 1 行に切り詰めて全体はツールチップで見せる
+  static const _interfaceWidth = 112.0;
+
   /// QR を出している URL。1 つずつしか出さない — 並べると小さくなって読めない
   String? _expanded;
   final _expandedKey = GlobalKey();
@@ -121,12 +125,18 @@ class _ConnectionViewState extends State<ConnectionView> {
         Row(
           children: [
             SizedBox(
-              width: 56,
-              child: Text(
-                interfaceName,
-                style: monospace.copyWith(fontSize: 12, color: context.secondary),
+              width: _interfaceWidth,
+              child: Tooltip(
+                message: interfaceName,
+                child: Text(
+                  interfaceName,
+                  style: monospace.copyWith(fontSize: 12, color: context.secondary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ),
+            const SizedBox(width: 8),
             Flexible(
               child: SelectableText(
                 url,
@@ -156,7 +166,7 @@ class _ConnectionViewState extends State<ConnectionView> {
   Widget _qr(BuildContext context, String url) {
     return Padding(
       key: _expandedKey,
-      padding: const EdgeInsets.only(left: 56, top: 4, bottom: 8),
+      padding: const EdgeInsets.only(left: _interfaceWidth + 8, top: 4, bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
