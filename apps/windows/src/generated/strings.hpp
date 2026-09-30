@@ -125,6 +125,11 @@ namespace doppelscreen::l10n {
       L"The viewer's answer could not be accepted"
   };
 
+  inline constexpr std::array<std::wstring_view, 2> host_failure_captureFailed{
+      L"画面の取得を開始できませんでした",
+      L"Could not start capturing the screen"
+  };
+
   inline constexpr std::array<std::wstring_view, 2> host_failure_certificateCreationFailed{
       L"証明書を生成できませんでした",
       L"Could not create the certificate"

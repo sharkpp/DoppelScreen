@@ -29,6 +29,7 @@ const _messages = <String, Map<String, String>>{
     "host.control.start": "配信を開始",
     "host.control.stop": "配信を停止",
     "host.failure.answerRejected": "ビューアの応答を受け付けられませんでした",
+    "host.failure.captureFailed": "画面の取得を開始できませんでした",
     "host.failure.certificateCreationFailed": "証明書を生成できませんでした",
     "host.failure.controlUnavailable": "制御チャネルを生成できません",
     "host.failure.displayNotFound": "ディスプレイ {id} が見つかりません",
@@ -89,6 +90,7 @@ const _messages = <String, Map<String, String>>{
     "host.control.start": "Start streaming",
     "host.control.stop": "Stop streaming",
     "host.failure.answerRejected": "The viewer's answer could not be accepted",
+    "host.failure.captureFailed": "Could not start capturing the screen",
     "host.failure.certificateCreationFailed": "Could not create the certificate",
     "host.failure.controlUnavailable": "Could not create the control channel",
     "host.failure.displayNotFound": "Display {id} was not found",
@@ -247,6 +249,9 @@ final class L10nFailure {
 
   /// ビューアの応答を受け付けられませんでした
   String get answerRejected => _table["host.failure.answerRejected"]!;
+
+  /// 画面の取得を開始できませんでした
+  String get captureFailed => _table["host.failure.captureFailed"]!;
 
   /// 証明書を生成できませんでした
   String get certificateCreationFailed => _table["host.failure.certificateCreationFailed"]!;

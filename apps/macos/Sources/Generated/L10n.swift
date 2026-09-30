@@ -128,6 +128,11 @@ enum L10n {
             NSLocalizedString("host.failure.answerRejected", comment: "")
         }
 
+        /// 画面の取得を開始できませんでした
+        static var captureFailed: String {
+            NSLocalizedString("host.failure.captureFailed", comment: "")
+        }
+
         /// 証明書を生成できませんでした
         static var certificateCreationFailed: String {
             NSLocalizedString("host.failure.certificateCreationFailed", comment: "")

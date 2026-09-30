@@ -91,6 +91,7 @@ host:
     peerUnavailable: PeerConnection を生成できません
     controlUnavailable: 制御チャネルを生成できません
     answerRejected: ビューアの応答を受け付けられませんでした
+    captureFailed: 画面の取得を開始できませんでした
     peerFailed: 接続に失敗しました
     viewerDisconnected: ビューアとの接続が切れました
     viewerLeft: ビューアが切断しました

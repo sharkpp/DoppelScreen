@@ -79,6 +79,7 @@ host:
     peerUnavailable: Could not create a PeerConnection
     controlUnavailable: Could not create the control channel
     answerRejected: The viewer's answer could not be accepted
+    captureFailed: Could not start capturing the screen
     peerFailed: The connection failed
     viewerDisconnected: The connection to the viewer was lost
     viewerLeft: The viewer disconnected

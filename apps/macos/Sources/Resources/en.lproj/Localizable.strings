@@ -23,6 +23,7 @@
 "host.control.start" = "Start streaming";
 "host.control.stop" = "Stop streaming";
 "host.failure.answerRejected" = "The viewer's answer could not be accepted";
+"host.failure.captureFailed" = "Could not start capturing the screen";
 "host.failure.certificateCreationFailed" = "Could not create the certificate";
 "host.failure.controlUnavailable" = "Could not create the control channel";
 "host.failure.displayNotFound" = "Display %1$@ was not found";
