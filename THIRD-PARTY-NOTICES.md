@@ -33,13 +33,15 @@ Flutter のエンジンと Dart パッケージのライセンス全文は、Flu
 | [libwebrtc](https://webrtc.googlesource.com/src/)（shiguredo/webrtc-build M152） | BSD 3-Clauseほか | `webrtc.lib` を静的リンク |
 | [Boost.Asio / Boost.Beast](https://www.boost.org/) | Boost Software License 1.0 | 静的リンク |
 | [OpenSSL](https://www.openssl.org/) | Apache-2.0 | 静的リンク |
-| [libqrencode](https://github.com/fukuchi/libqrencode) | LGPL-2.1-or-later | 静的リンク |
 | [nlohmann/json](https://github.com/nlohmann/json) | MIT | ヘッダをコンパイル時に取り込み |
+| [Flutter](https://github.com/flutter/flutter)（エンジンとフレームワーク。ホスト UI、[ADR 0002](docs/adr/0002-host-ui-flutter.md)） | BSD 3-Clause ほか（エンジンが内包する第三者コードを含む） | `flutter_windows.dll` として同梱。C++ の client wrapper は静的リンク |
+| [Dart](https://github.com/dart-lang/sdk)（ランタイム） | BSD 3-Clause | `data/app.so` に AOT で同梱 |
+| [qr_flutter](https://github.com/theyakka/qr.flutter) / [qr](https://github.com/kevmoo/qr.dart) | BSD 3-Clause | `data/app.so` に AOT で同梱 |
 
+Flutter のエンジンと Dart パッケージのライセンス全文は、ビルド後の処理で `data/flutter_assets/NOTICES.Z` を展開し、
+実行ファイルの隣に `Flutter-NOTICES.txt` として並べている。
 Catch2 はWindows単体テストだけで使い、配布物には含めません。Windows配布時は本ファイルに加え、
 各ライブラリおよびlibwebrtcが内包する第三者コードのライセンス全文を同梱してください。
-libqrencodeを静的リンクする配布物については、LGPLが要求する再リンク手段（対応するオブジェクト
-ファイル等）も提供する必要があります。
 
 ## ビューア（HTML）に含まれるもの
 
