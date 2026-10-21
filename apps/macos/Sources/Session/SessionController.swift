@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import NIOSSL
 import Observation
 import WebRTC
 
@@ -189,17 +190,17 @@ final class SessionController {
 
         addresses = NetworkInterfaces.lanAddresses()
         // 証明書が用意できなくても配信自体は成立する。HTTP だけで続ける
-        var identity: SecIdentity?
+        var tls: NIOSSLContext?
         certificateError = nil
         do {
-            identity = try TLSIdentity.current(addresses: addresses.map(\.address))
+            tls = try TLSIdentity.current(addresses: addresses.map(\.address)).serverContext()
         } catch {
             certificateError = error.localizedDescription
         }
 
         do {
             let listening = try await server.start(
-                .init(pairing: pairing, identity: identity)
+                .init(pairing: pairing, tls: tls)
             ) { [weak self] connection, admission in
                 Task { @MainActor in self?.acceptViewer(connection, admission: admission) }
             }

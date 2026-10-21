@@ -30,11 +30,8 @@ const _messages = <String, Map<String, String>>{
     "host.control.stop": "配信を停止",
     "host.failure.answerRejected": "ビューアの応答を受け付けられませんでした",
     "host.failure.captureFailed": "画面の取得を開始できませんでした",
-    "host.failure.certificateCreationFailed": "証明書を生成できませんでした",
     "host.failure.controlUnavailable": "制御チャネルを生成できません",
     "host.failure.displayNotFound": "ディスプレイ {id} が見つかりません",
-    "host.failure.keyCreationFailed": "秘密鍵を生成できませんでした: {message}",
-    "host.failure.keychain": "キーチェーン操作に失敗しました（{operation}: {message}）",
     "host.failure.peerFailed": "接続に失敗しました",
     "host.failure.peerUnavailable": "PeerConnection を生成できません",
     "host.failure.viewerDisconnected": "ビューアとの接続が切れました",
@@ -91,11 +88,8 @@ const _messages = <String, Map<String, String>>{
     "host.control.stop": "Stop streaming",
     "host.failure.answerRejected": "The viewer's answer could not be accepted",
     "host.failure.captureFailed": "Could not start capturing the screen",
-    "host.failure.certificateCreationFailed": "Could not create the certificate",
     "host.failure.controlUnavailable": "Could not create the control channel",
     "host.failure.displayNotFound": "Display {id} was not found",
-    "host.failure.keyCreationFailed": "Could not create the private key: {message}",
-    "host.failure.keychain": "Keychain operation failed ({operation}: {message})",
     "host.failure.peerFailed": "The connection failed",
     "host.failure.peerUnavailable": "Could not create a PeerConnection",
     "host.failure.viewerDisconnected": "The connection to the viewer was lost",
@@ -253,23 +247,12 @@ final class L10nFailure {
   /// 画面の取得を開始できませんでした
   String get captureFailed => _table["host.failure.captureFailed"]!;
 
-  /// 証明書を生成できませんでした
-  String get certificateCreationFailed => _table["host.failure.certificateCreationFailed"]!;
-
   /// 制御チャネルを生成できません
   String get controlUnavailable => _table["host.failure.controlUnavailable"]!;
 
   /// ディスプレイ {id} が見つかりません
   String displayNotFound({required String id}) =>
       _format(_table["host.failure.displayNotFound"]!, {"id": id});
-
-  /// 秘密鍵を生成できませんでした: {message}
-  String keyCreationFailed({required String message}) =>
-      _format(_table["host.failure.keyCreationFailed"]!, {"message": message});
-
-  /// キーチェーン操作に失敗しました（{operation}: {message}）
-  String keychain({required String operation, required String message}) =>
-      _format(_table["host.failure.keychain"]!, {"operation": operation, "message": message});
 
   /// 接続に失敗しました
   String get peerFailed => _table["host.failure.peerFailed"]!;

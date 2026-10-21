@@ -130,11 +130,6 @@ namespace doppelscreen::l10n {
       L"Could not start capturing the screen"
   };
 
-  inline constexpr std::array<std::wstring_view, 2> host_failure_certificateCreationFailed{
-      L"証明書を生成できませんでした",
-      L"Could not create the certificate"
-  };
-
   inline constexpr std::array<std::wstring_view, 2> host_failure_controlUnavailable{
       L"制御チャネルを生成できません",
       L"Could not create the control channel"
@@ -143,16 +138,6 @@ namespace doppelscreen::l10n {
   inline constexpr std::array<std::wstring_view, 2> host_failure_displayNotFound{
       L"ディスプレイ {id} が見つかりません",
       L"Display {id} was not found"
-  };
-
-  inline constexpr std::array<std::wstring_view, 2> host_failure_keyCreationFailed{
-      L"秘密鍵を生成できませんでした: {message}",
-      L"Could not create the private key: {message}"
-  };
-
-  inline constexpr std::array<std::wstring_view, 2> host_failure_keychain{
-      L"キーチェーン操作に失敗しました（{operation}: {message}）",
-      L"Keychain operation failed ({operation}: {message})"
   };
 
   inline constexpr std::array<std::wstring_view, 2> host_failure_peerFailed{

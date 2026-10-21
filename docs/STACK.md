@@ -109,7 +109,8 @@ Playwright でホストアプリを起動し、実ブラウザから繋いで映
 | --- | --- | --- |
 | WebRTC | [`stasel/WebRTC`](https://github.com/stasel/WebRTC) (SPM) | libwebrtc のビルド済み xcframework。iOS/macOS 対応 |
 | HTTP + WebSocket | `apple/swift-nio`（`NIOHTTP1` + `NIOWebSocket`） | HTTP と WS アップグレードを 1 ポートで扱える |
-| TLS | `apple/swift-nio-transport-services`（`NIOTSListenerBootstrap`） | Network.framework 経由でシステム TLS を使う。BoringSSL を抱え込まない |
+| 待受 | `apple/swift-nio-transport-services`（`NIOTSListenerBootstrap`） | Network.framework の上に NIO を載せる |
+| TLS | `apple/swift-nio-ssl`（`NIOSSLServerHandler`、BoringSSL 内包） | 鍵をファイルから渡せる。Network.framework の TLS はキーチェーンの `SecIdentity` しか受け取れない（§2.4） |
 | 自己署名証明書 | `apple/swift-certificates` + `apple/swift-crypto` | SAN 付き X.509 をコードで生成できる |
 | ホスト UI | Flutter（`apps/host_ui` を `FlutterMacOS.xcframework` + `App.xcframework` にして埋め込む） | [ADR 0002](adr/0002-host-ui-flutter.md)、§2.18 |
 | QR | [`qr_flutter`](https://pub.dev/packages/qr_flutter)（純 Dart） | ホスト UI の中で描く。ネイティブコードを持つプラグインは使わない |
@@ -216,7 +217,7 @@ func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of typ
 SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載せる（NIO 標準の構成）。1 ポートで両方を捌ける。
 
 - HTTP リスナ（:8422）と HTTPS リスナ（:8423）を同じハンドラで 2 本立てる。
-- TLS は `NIOTSListenerBootstrap` + `NWProtocolTLS`。`SecIdentity` を渡す。
+- TLS は HTTPS 側の子チャネルの先頭に `NIOSSLServerHandler` を挿して終端する。`NWProtocolTLS` は使わない（下の「キーチェーンを使わない理由」）。
 - 返すのは `Bundle.main` に入っている単一 HTML 1 つと、`/signal` の WebSocket のみ。ルーティングは実質 2 分岐。
 - 希望のポートが埋まっていたら空きポートへずらし、**実際に確保できたポートを URL / QR に反映する**（SPEC.md §5.3）。
 
@@ -241,56 +242,41 @@ SwiftNIO の HTTP サーバに WebSocket アップグレードハンドラを載
 
 ```
 待受の開始時:
-  Keychain の証明書を全件読み、OU が "net.sharkpp.doppelscreen.tls" のものを探す
-    ある & SAN が現在の IP を覆う → SecIdentityCreateWithCertificate で識別情報にする
-    ない or IP が増えている       → swift-certificates で生成 → Keychain へ保存
+  ~/Library/Application Support/net.sharkpp.doppelscreen/tls/ の certificate.pem と private-key.pem を読む
+    読めて対になっている & SAN が現在の IP を覆う → そのまま NIOSSLContext にする
+    ない / 壊れている / IP が増えている           → swift-certificates で生成して書き出す
 ```
 
-- 秘密鍵は Keychain、証明書も Keychain（`SecIdentity` として取り出せる形）に置く。Application Support に平文で置かない。
+- 鍵は P-256。ディレクトリを 0700 にしてから書き、鍵のファイルは 0600。
 - **SAN に全ての LAN IP と `127.0.0.1` を入れる。** `getifaddrs` で列挙する。ループバックは E2E と手元確認に要る。
 - 古い IP が余分に残っているだけなら作り直さない。**ビューア端末が受け入れた証明書例外を無駄に無効化しない**ため。
 - **HSTS ヘッダを送らない**（SPEC.md §5.3）。
 - 証明書が用意できなくても HTTP だけで待ち受けを続ける。**HTTPS が立たないことを配信不能にしない。**
 
-#### キーチェーンの落とし穴（実害が出た）
+#### キーチェーンを使わない理由（実害が出た）
 
-> **`SecItemCopyMatching` / `SecItemDelete` に `kSecClassIdentity` + `kSecAttrLabel` を渡してはいけない。**
-> macOS の（レガシー）キーチェーンではこの絞り込みが効かず、**ラベルが一致しない他の識別情報を掴む**。
-> 実装当初これをやった結果、`SecItemCopyMatching` が開発用の署名証明書「DoppelScreen Development」を
-> 返し、SAN が合わないので作り直すべきと判断して `SecItemDelete` で**消してしまった**。
-> 署名 ID が消えるとビルドが通らなくなり、作り直すと TCC から別アプリになって画面収録の許可もやり直しになる。
+当初は秘密鍵と証明書をログインキーチェーンに置き、`NWProtocolTLS` に `SecIdentity` を渡していた。
+次の理由でやめた。
 
-対処（実装済み）:
+- **開発ビルドではリビルドのたびに HTTPS が止まる。** キーチェーンの鍵には作成したアプリの
+  パーティション（`partition_id`）が付く。Team ID を持たない自己署名の開発証明書ではこれが **cdhash** になり、
+  リビルドで一致しなくなる。TLS ハンドシェイクで鍵を使う瞬間に確認ダイアログが出て、
+  **応答するまでハンドシェイクが返らない。** しかも NIOTS のイベントループが塞がり、**HTTP 側まで応答しなくなる。**
+  ACL を「どのアプリでも可」にしても、パーティションの確認は別に走るので避けられない。
+  `make e2e` の HTTPS 経路が落ち続けていた原因はこれだった。
+- 付けたつもりの ACL も効いていなかった（`kSecAttrAccess` を `kSecPrivateKeyAttrs` の中に置くと無視される）。
+  使っていた `SecAccessCreate` 系は deprecated で、ファイルベースのキーチェーンに代替がない。
+- ラベルでの絞り込みが効かず、**開発用の署名証明書を誤って消した**ことがある
+  （`kSecClassIdentity` + `kSecAttrLabel` が無関係な識別情報を返した）。
+  自分の項目でないものに触りうる置き場所は、それ自体が危うい。
 
-- **探すときは属性に頼らない。** 証明書を全件読み（`kSecMatchLimitAll`）、DER をパースして
-  **中身**（OU = `net.sharkpp.doppelscreen.tls`）で自分のものだと判定する。
-- **消すときは参照そのものを指す。** `kSecMatchItemList` に `SecCertificate` / `SecKey` の参照を渡す。
-  属性で消すと、キーチェーンが属性を無視した場合に無関係な項目まで巻き込む。
-- `SecIdentity` は `SecIdentityCreateWithCertificate` で証明書から作る。identity クラスへの問い合わせを避けられる。
-- PKCS#12 は組み立てない。**秘密鍵と証明書をそれぞれ入れれば、キーチェーンが公開鍵ハッシュで結び付けてくれる。**
-  `security import` 系で踏む「空パスワード不可」「OpenSSL 3 既定の暗号化を受け付けない」（§2.5）を回避できる。
-- **`kSecUseDataProtectionKeychain: false` を明示する。** 付けないとデータ保護キーチェーンへ回され、
-  `keychain-access-groups` エンタイトルメントを要求されて `errSecMissingEntitlement` で弾かれる。
-  このエンタイトルメントには実 Team ID とプロビジョニングプロファイルが要り、自己署名の開発ビルドでは付けられない。
-- **鍵に「どのプロセスからも確認なしで使える」利用許可を付ける**（`SecAccessCreate` +
-  `SecACLSetContents(acl, nil, ...)`）。既定のまま（＝作成したアプリだけ）にすると、
-  **アプリを更新した瞬間に HTTPS が黙って死ぬ。** 署名の変わった実行ファイルから鍵を使おうとすると
-  キーチェーンが確認ダイアログを出そうとし、検証モード（§2.7）のように UI を持たないプロセスでは
-  **そのまま返ってこない**。TCP は繋がるのに TLS ハンドシェイクが完了しない、という一番分かりにくい
-  壊れ方をする（実際に踏み、`make e2e` の HTTPS 経路だけが落ち続けた）。
-  `SecACLSetContents` の `applicationList` は **`nil` が「どのアプリでも可」**で、
-  空配列は「どのアプリも不可」。意味が正反対なので注意する。
-  この鍵が守るのは LAN 内の中間者だけで、同じ Mac 上のプロセスに対しては何も守っていない
-  （画面を撮れる立場のプロセスは配信内容そのものを直接読める）。秘密は接続トークンと
-  ホスト承認の側にある（SPEC.md §5.2）。
-  なお `SecAccessCreate` 系は macOS 10.10 で deprecated だが、**ファイルベースのキーチェーンには
-  代替がない**。上の `kSecUseDataProtectionKeychain: false` と同じ理由で、ここは警告を承知で使う。
-- **鍵はキーチェーンの中で作る**（`SecKeyCreateRandomKey` + `kSecAttrIsPermanent`）。
-  `SecKeyCreateWithData` で作った「浮いた」鍵を `kSecValueRef` で `SecItemAdd` に渡すと、
-  ファイルベースのキーチェーンは項目参照として受け付けず `errSecInvalidItemRef` を返す。
-  作ってから `SecKeyCopyExternalRepresentation` で取り出し、swift-certificates に署名させる
-  （EC の秘密鍵は **ANSI X9.63 形式** = `04 || X || Y || K` で出入りする）。
-  証明書のほうは `SecCertificateCreateWithData` で作った参照をそのまま `SecItemAdd` に渡してよい。
+ファイルに置いても守れる範囲は変わらない。この鍵が守るのは LAN 内の中間者だけで、同じ Mac 上の同じユーザの
+プロセスに対しては、もともと何も守っていない（画面を撮れる立場のプロセスは配信内容そのものを直接読める。
+キーチェーンでも「どのアプリでも可」にする方針だった）。秘密は接続トークンとホスト承認の側にある（SPEC.md §5.2）。
+Windows もファイル（DPAPI で保護）+ OpenSSL で同じ形になっている。
+
+代わりに BoringSSL（swift-nio-ssl に内包）を抱える。バイナリは数 MB 増えるが、TLS はビューアページと
+シグナリングにしか使わず、映像（DTLS-SRTP）は libwebrtc が別に持つので遅延には効かない。
 
 ### 2.5 権限とネットワーク
 
@@ -415,10 +401,6 @@ make e2e                                          # Playwright から自動で�
 
 - **`startServing()` は直列キューへ積むだけで、戻った時点ではまだ `.idle`。** 「`.starting` ではない」で
   待つと積む前の状態を拾って素通りする。`.running` / `.failed` で待つ。
-- **HTTPS の待受が「繋がるのに応答しない」場合はキーチェーンの確認ダイアログを疑う。** 証明書の
-  取得（`SecIdentity`）は通るが、TLS ハンドシェイクでの秘密鍵の使用は許可を要求する。
-  ダイアログが未応答のまま残っていると `ERR_TIMED_OUT` / `ERR_CONNECTION_REFUSED` になる。
-  「常に許可」を一度押す。`certificateError` は `nil` のままなので、ログからは分からない。
 
 ### 2.11 遅延の実測（M1）
 
@@ -925,8 +907,8 @@ Dock タイルを持たないアプリ（§2.18）では差し替え前の仮画
 期限まわり（トークンの TTL、レート制限の窓、再接続チケットの寿命）は `PairingService` の
 イニシャライザで注入できるようにしてある。**5 分待たないと確かめられない作りにしない。**
 
-証明書生成（`TLSIdentity`）はキーチェーンに触るため、この単体テストには含めていない。
-確認は `make macos-serve` と E2E の HTTPS 経路で行う。
+証明書（`TLSIdentity`）は置き場所を注入できるので、一時ディレクトリへ向けて単体テストで確かめる
+（使い回し・作り直しの条件、ファイルの権限、壊れたときの作り直し）。実際の TLS は E2E の HTTPS 経路で見る。
 
 ---
 
@@ -942,6 +924,4 @@ Dock タイルを持たないアプリ（§2.18）では差し替え前の仮画
 5. `RTCRtpReceiver.jitterBufferTarget` の Safari 対応状況（未対応なら iPad ビューアの遅延がどこまで下がるか）。
    Chrome では 0 を設定でき、ジッタバッファは 8.3ms まで下がることを実測（§2.11）
 6. macOS 15+ のローカルネットワークアクセス許諾がバックグラウンドの待受にどう影響するか
-7. `SecAccessCreate` 系（deprecated）の代替。ファイルベースのキーチェーンには現状 代替がなく、
-   データ保護キーチェーンへ移すには実 Team ID とプロビジョニングプロファイルが要る（§2.4）。
-   Developer ID での配布に移った時点で、`kSecUseDataProtectionKeychain: true` に寄せられるか確認する
+7. ~~`SecAccessCreate` 系（deprecated）の代替~~ → **キーチェーンをやめたので不要になった**（§2.4）

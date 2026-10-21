@@ -1,8 +1,8 @@
 import CoreGraphics
 import Foundation
-import Network
 import NIOCore
 import NIOHTTP1
+import NIOSSL
 import NIOTransportServices
 import NIOWebSocket
 import OSLog
@@ -14,15 +14,13 @@ import OSLog
 /// ルーティングは実質 2 分岐になる（ビューアを単一 HTML に落としているため）。
 final class LocalServer: @unchecked Sendable {
 
-    // `SecIdentity` が `Sendable` でないため struct 自体も `Sendable` にしない。
-    // 待受の起動時にしか使わず、スレッドを跨がせない
-    struct Configuration {
+    struct Configuration: Sendable {
         var preferredPort: Int = 8422
         var preferredSecurePort: Int = 8423
         /// トークンの発行と検証（SPEC.md §5.2）。期限が切れれば同じ待受のまま作り直される
         var pairing: PairingService
-        /// HTTPS 側の証明書。用意できなければ HTTP だけで待ち受ける
-        var identity: SecIdentity?
+        /// HTTPS 側の TLS。証明書が用意できなければ `nil` で、HTTP だけで待ち受ける
+        var tls: NIOSSLContext?
     }
 
     /// 実際に確保できたポート。希望のポートが埋まっていればずれる
@@ -69,16 +67,10 @@ final class LocalServer: @unchecked Sendable {
         let ports = ResolvedPorts()
 
         func makeBootstrap(secure: Bool) -> NIOTSListenerBootstrap {
-            var bootstrap = NIOTSListenerBootstrap(group: group)
-            if secure, let identity = configuration.identity {
-                let options = NWProtocolTLS.Options()
-                sec_protocol_options_set_local_identity(
-                    options.securityProtocolOptions,
-                    sec_identity_create(identity)!
-                )
-                bootstrap = bootstrap.tlsOptions(options)
-            }
-            return bootstrap.childChannelInitializer { channel in
+            // TLS は Network.framework ではなく NIOSSL で終端する。前者は鍵を
+            // キーチェーンの `SecIdentity` でしか受け取れない（docs/STACK.md §2.4）
+            let tls = secure ? configuration.tls : nil
+            return NIOTSListenerBootstrap(group: group).childChannelInitializer { channel in
                 let upgrader = NIOWebSocketServerUpgrader(
                     // SDP は 1 フレームで届く。既定の 16KB では足りなくなりうる
                     maxFrameSize: 1 << 20,
@@ -95,6 +87,9 @@ final class LocalServer: @unchecked Sendable {
                 )
 
                 return channel.eventLoop.makeCompletedFuture {
+                    if let tls {
+                        try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: tls))
+                    }
                     // アップグレードで外れるのは NIO が入れた HTTP のハンドラだけ。
                     // 自前のハンドラは残ってしまい、`WebSocketFrame` を `HTTPServerRequestPart` として
                     // 取り出そうとしてプロセスごと落ちる。昇格したら自分で外す
@@ -115,7 +110,7 @@ final class LocalServer: @unchecked Sendable {
         }
 
         // HTTPS を先に確保する。HTTP 側の `/config` が実ポートを答えられるようにするため
-        if configuration.identity != nil {
+        if configuration.tls != nil {
             let secure = try await bind(makeBootstrap(secure: true), preferred: configuration.preferredSecurePort)
             ports.securePort = secure.localAddress?.port
             lock.withLock { channels.append(secure) }

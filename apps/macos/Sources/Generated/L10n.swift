@@ -133,11 +133,6 @@ enum L10n {
             NSLocalizedString("host.failure.captureFailed", comment: "")
         }
 
-        /// 証明書を生成できませんでした
-        static var certificateCreationFailed: String {
-            NSLocalizedString("host.failure.certificateCreationFailed", comment: "")
-        }
-
         /// 制御チャネルを生成できません
         static var controlUnavailable: String {
             NSLocalizedString("host.failure.controlUnavailable", comment: "")
@@ -146,16 +141,6 @@ enum L10n {
         /// ディスプレイ {id} が見つかりません
         static func displayNotFound(id: String) -> String {
             String(format: NSLocalizedString("host.failure.displayNotFound", comment: ""), id)
-        }
-
-        /// 秘密鍵を生成できませんでした: {message}
-        static func keyCreationFailed(message: String) -> String {
-            String(format: NSLocalizedString("host.failure.keyCreationFailed", comment: ""), message)
-        }
-
-        /// キーチェーン操作に失敗しました（{operation}: {message}）
-        static func keychain(operation: String, message: String) -> String {
-            String(format: NSLocalizedString("host.failure.keychain", comment: ""), operation, message)
         }
 
         /// 接続に失敗しました

@@ -95,9 +95,6 @@ host:
     peerFailed: 接続に失敗しました
     viewerDisconnected: ビューアとの接続が切れました
     viewerLeft: ビューアが切断しました
-    keychain: "キーチェーン操作に失敗しました（{operation}: {message}）"
-    certificateCreationFailed: 証明書を生成できませんでした
-    keyCreationFailed: "秘密鍵を生成できませんでした: {message}"
 
 viewer:
   status:

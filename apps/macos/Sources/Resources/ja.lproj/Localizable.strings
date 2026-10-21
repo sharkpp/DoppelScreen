@@ -24,11 +24,8 @@
 "host.control.stop" = "配信を停止";
 "host.failure.answerRejected" = "ビューアの応答を受け付けられませんでした";
 "host.failure.captureFailed" = "画面の取得を開始できませんでした";
-"host.failure.certificateCreationFailed" = "証明書を生成できませんでした";
 "host.failure.controlUnavailable" = "制御チャネルを生成できません";
 "host.failure.displayNotFound" = "ディスプレイ %1$@ が見つかりません";
-"host.failure.keyCreationFailed" = "秘密鍵を生成できませんでした: %1$@";
-"host.failure.keychain" = "キーチェーン操作に失敗しました（%1$@: %2$@）";
 "host.failure.peerFailed" = "接続に失敗しました";
 "host.failure.peerUnavailable" = "PeerConnection を生成できません";
 "host.failure.viewerDisconnected" = "ビューアとの接続が切れました";

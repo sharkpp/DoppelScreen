@@ -29,10 +29,15 @@ packages:
   SwiftNIO:
     url: https://github.com/apple/swift-nio
     exactVersion: 2.101.3
-  # TLS は Network.framework 経由で使う。BoringSSL を抱え込まない
+  # 待受は Network.framework の上に載せる
   SwiftNIOTransportServices:
     url: https://github.com/apple/swift-nio-transport-services
     exactVersion: 1.28.0
+  # TLS の終端。Network.framework の TLS は鍵をキーチェーンの SecIdentity でしか
+  # 受け取れず、開発ビルドではリビルドのたびに確認ダイアログで止まる（docs/STACK.md §2.4）
+  SwiftNIOSSL:
+    url: https://github.com/apple/swift-nio-ssl
+    exactVersion: 2.37.5
   # SAN 付きの自己署名証明書をコードで生成する（docs/STACK.md §2.4）
   SwiftCertificates:
     url: https://github.com/apple/swift-certificates
@@ -60,6 +65,8 @@ targets:
         product: NIOWebSocket
       - package: SwiftNIOTransportServices
         product: NIOTransportServices
+      - package: SwiftNIOSSL
+        product: NIOSSL
       - package: SwiftCertificates
         product: X509
     settings:
@@ -138,6 +145,8 @@ targets:
         product: NIOWebSocket
       - package: SwiftNIOTransportServices
         product: NIOTransportServices
+      - package: SwiftNIOSSL
+        product: NIOSSL
       - package: SwiftCertificates
         product: X509
     settings:

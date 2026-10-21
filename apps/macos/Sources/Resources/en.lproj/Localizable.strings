@@ -24,11 +24,8 @@
 "host.control.stop" = "Stop streaming";
 "host.failure.answerRejected" = "The viewer's answer could not be accepted";
 "host.failure.captureFailed" = "Could not start capturing the screen";
-"host.failure.certificateCreationFailed" = "Could not create the certificate";
 "host.failure.controlUnavailable" = "Could not create the control channel";
 "host.failure.displayNotFound" = "Display %1$@ was not found";
-"host.failure.keyCreationFailed" = "Could not create the private key: %1$@";
-"host.failure.keychain" = "Keychain operation failed (%1$@: %2$@)";
 "host.failure.peerFailed" = "The connection failed";
 "host.failure.peerUnavailable" = "Could not create a PeerConnection";
 "host.failure.viewerDisconnected" = "The connection to the viewer was lost";

@@ -11,6 +11,8 @@ DoppelScreen 本体は [MIT License](LICENSE) で配布します。
 | [libwebrtc](https://webrtc.googlesource.com/src/)（[stasel/WebRTC](https://github.com/stasel/WebRTC) のビルド済み xcframework M151） | BSD 3-Clause | `WebRTC.framework` として同梱 |
 | [swift-nio](https://github.com/apple/swift-nio) | Apache-2.0 | 静的リンク |
 | [swift-nio-transport-services](https://github.com/apple/swift-nio-transport-services) | Apache-2.0 | 静的リンク |
+| [swift-nio-ssl](https://github.com/apple/swift-nio-ssl) | Apache-2.0 | 静的リンク |
+| [BoringSSL](https://boringssl.googlesource.com/boringssl/)（swift-nio-ssl が内包する版） | OpenSSL License / SSLeay License / ISC（一部 MIT） | 上記の一部として静的リンク |
 | [swift-certificates](https://github.com/apple/swift-certificates) | Apache-2.0 | 静的リンク |
 | [swift-asn1](https://github.com/apple/swift-asn1) | Apache-2.0 | 上記の依存として静的リンク |
 | [swift-crypto](https://github.com/apple/swift-crypto) | Apache-2.0 | 上記の依存として静的リンク |
@@ -24,6 +26,8 @@ DoppelScreen 本体は [MIT License](LICENSE) で配布します。
 Flutter のエンジンと Dart パッケージのライセンス全文は、Flutter がビルド時に集めて
 `App.framework` に入れている（`flutter_assets/NOTICES.Z`）。ビルドフェーズでこれを展開し、
 `Contents/Resources/Licenses/Flutter-NOTICES.txt` として並べている。
+BoringSSL のライセンス全文は SwiftPM のチェックアウトに含まれないため、
+`apps/macos/licenses/BoringSSL-LICENSE.txt` に原本を置き、同じく `Licenses/` へ入れている。
 [pigeon](https://pub.dev/packages/pigeon) と flutter_lints / flutter_test はコード生成・検査・テストだけで使い、配布物には含まれない。
 
 ## ホストアプリ（Windows）に含まれるもの
@@ -61,9 +65,9 @@ Catch2 はWindows単体テストだけで使い、配布物には含めません
 
 ### MIT で問題ないもの
 
-- **BSD 3-Clause（libwebrtc）と Apache-2.0（swift-*）は MIT と両立する。**
+- **BSD 3-Clause（libwebrtc）、Apache-2.0（swift-*）、OpenSSL / SSLeay / ISC（BoringSSL）は MIT と両立する。**
   いずれも「本体を MIT にすること」を妨げない。求められるのは著作権表示・ライセンス全文・
-  （Apache-2.0 なら）NOTICE の保持だけで、本ファイルと配布物への同梱で満たせる。
+  （Apache-2.0 なら）NOTICE の保持、（OpenSSL / SSLeay なら）謝辞の保持だけで、本ファイルと配布物への同梱で満たせる。
   なお**これらの依存が MIT になるわけではない** — 各ライブラリは元のライセンスのままである。
 - **Apache-2.0 の特許条項は MIT 側へ伝播しない。** 依存として利用しているだけで、
   DoppelScreen 自身のコードに Apache-2.0 の条件は乗らない。

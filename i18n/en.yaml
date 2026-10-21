@@ -83,9 +83,6 @@ host:
     peerFailed: The connection failed
     viewerDisconnected: The connection to the viewer was lost
     viewerLeft: The viewer disconnected
-    keychain: "Keychain operation failed ({operation}: {message})"
-    certificateCreationFailed: Could not create the certificate
-    keyCreationFailed: "Could not create the private key: {message}"
 
 viewer:
   status:
