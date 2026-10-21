@@ -107,6 +107,9 @@ add_dependencies(DoppelScreen windows_viewer)
 add_custom_command(TARGET DoppelScreen POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "${VIEWER_HTML}" "$<TARGET_FILE_DIR:DoppelScreen>/viewer.html"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_CURRENT_SOURCE_DIR}/../../LICENSE"
+          "$<TARGET_FILE_DIR:DoppelScreen>/LICENSE.txt"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "${CMAKE_CURRENT_SOURCE_DIR}/../../THIRD-PARTY-NOTICES.md"
           "$<TARGET_FILE_DIR:DoppelScreen>/THIRD-PARTY-NOTICES.md"
   # ホスト UI: エンジンの DLL を実行ファイルの隣に、ICU と AOT と assets を data/ に置く（DartProject(L"data")）
