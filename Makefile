@@ -19,6 +19,10 @@ SELFTEST_DIR := $(MACOS_BUILD)/selftest
 # 例: make macos-selftest SELFTEST_ARGS="--display 1 --duration 5"
 SELFTEST_ARGS ?=
 
+# xcodebuild に足すビルド設定。CI は開発用の署名証明書を持たないので ad-hoc にする
+# 例: make macos-test XCODEBUILD_ARGS="CODE_SIGN_IDENTITY=-"
+XCODEBUILD_ARGS ?=
+
 # 言語定義（i18n/*.yaml）を各プラットフォームの形式へ変換する（SPEC.md §11-7）。
 # 生成物はコミットするため、通常のビルドで Node は要らない。文言を直したときだけ実行する。
 i18n:
@@ -62,6 +66,7 @@ macos-build: macos-generate
 		-configuration Debug \
 		-derivedDataPath $(MACOS_BUILD) \
 		-quiet \
+		$(XCODEBUILD_ARGS) \
 		build
 
 macos-run: macos-build
@@ -75,6 +80,7 @@ macos-test: macos-generate
 		-configuration Debug \
 		-derivedDataPath $(MACOS_BUILD) \
 		-quiet \
+		$(XCODEBUILD_ARGS) \
 		test
 
 # UI を出さずにキャプチャを一通り走らせ、結果を JSON と PNG で残す。

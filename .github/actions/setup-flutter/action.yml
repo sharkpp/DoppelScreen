@@ -1,0 +1,10 @@
+name: Flutter を用意する
+description: ホスト UI（apps/host_ui）のビルドとテストに使う Flutter SDK。版はここで固定する
+runs:
+  using: composite
+  steps:
+    - uses: subosito/flutter-action@v2
+      with:
+        channel: stable
+        flutter-version: 3.47.5
+        cache: true

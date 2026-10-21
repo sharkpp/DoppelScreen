@@ -1,0 +1,71 @@
+# 実機も画面収録の許可も要らない層のテスト（docs/STACK.md §6.5）。
+# make e2e は実ホストに画面収録の許可が要り、ホストランナーでは与えられないため載せない
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # リリースの前にも同じものを通す（release.yml）
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.workflow_ref }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: ビューア・言語定義
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            tools/i18n/package-lock.json
+      - run: npm --prefix apps/web ci
+      # 型検査（tsc）を含む
+      - run: make web-build
+      - run: make web-test
+      - run: make i18n-check
+
+  host-ui:
+    name: ホスト UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-flutter
+      - run: make host-ui-test
+
+  macos:
+    name: macOS ホスト
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-macos
+      # 開発用の署名証明書（make macos-dev-certificate）はランナーに無い。
+      # 画面収録の許可を使わないので ad-hoc 署名で足りる
+      - run: make macos-test XCODEBUILD_ARGS="CODE_SIGN_IDENTITY=-"
+
+  windows:
+    name: Windows ホスト
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-windows
+      - name: 構成
+        working-directory: apps/windows
+        run: cmake --preset windows-x64
+      - name: ビルド
+        working-directory: apps/windows
+        run: cmake --build --preset windows-x64-release
+      - name: テスト
+        working-directory: apps/windows
+        run: ctest --preset windows-x64-release

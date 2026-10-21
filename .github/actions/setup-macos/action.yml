@@ -1,0 +1,24 @@
+name: macOS のビルド環境を用意する
+description: Xcode・XcodeGen・Node.js・Flutter（make macos-* が前提にするもの）
+runs:
+  using: composite
+  steps:
+    # project.yml は Swift 6 の strict concurrency を前提にしている。手元と同じ版に揃える
+    - name: Xcode を選ぶ
+      shell: bash
+      run: sudo xcode-select -s /Applications/Xcode_16.4.app
+
+    - name: XcodeGen を入れる
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+      run: brew install xcodegen
+
+    # ビューアはビルドフェーズ（scripts/build-viewer.sh）で npm から組み立てる
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: apps/web/package-lock.json
+
+    - uses: ./.github/actions/setup-flutter

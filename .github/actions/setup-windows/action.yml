@@ -1,0 +1,65 @@
+name: Windows のビルド環境を用意する
+description: Node.js・Flutter・vcpkg・libwebrtc を揃え、VCPKG_ROOT と WEBRTC_ROOT を設定する（apps/windows/README.md）
+runs:
+  using: composite
+  steps:
+    # ビューアは CMake のカスタムコマンドが npm から組み立てる
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: apps/web/package-lock.json
+
+    - uses: ./.github/actions/setup-flutter
+
+    # 依存のビルド（Boost など）は時間がかかるので、vcpkg のバイナリキャッシュを持ち越す。
+    # キーは vcpkg.json（baseline を含む）
+    - uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/vcpkg-archives
+        key: vcpkg-x64-windows-static-${{ hashFiles('apps/windows/vcpkg.json') }}
+
+    # ランナー同梱の vcpkg は baseline のコミットを含むとは限らない。baseline の版を取ってくる
+    - name: vcpkg を用意する
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $PSNativeCommandUseErrorActionPreference = $true
+        $baseline = (Get-Content apps/windows/vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+        $root = "$env:RUNNER_TEMP\vcpkg"
+        git init --quiet $root
+        git -C $root fetch --quiet --depth 1 https://github.com/microsoft/vcpkg.git $baseline
+        git -C $root checkout --quiet FETCH_HEAD
+        & "$root\bootstrap-vcpkg.bat" -disableMetrics
+        New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\vcpkg-archives" | Out-Null
+        "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
+        "VCPKG_BINARY_SOURCES=clear;files,$env:RUNNER_TEMP\vcpkg-archives,readwrite" >> $env:GITHUB_ENV
+
+    # 版とチェックサムは apps/windows/README.md と CMakeLists.txt の検査に合わせる
+    - uses: actions/cache@v4
+      id: webrtc
+      with:
+        path: ${{ runner.temp }}/webrtc-m152.7977.0.0
+        key: webrtc-windows_x86_64-m152.7977.0.0
+
+    - name: libwebrtc を取ってくる
+      if: steps.webrtc.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $PSNativeCommandUseErrorActionPreference = $true
+        $archive = "$env:RUNNER_TEMP\webrtc.zip"
+        curl.exe -fsSL "https://github.com/shiguredo-webrtc-build/webrtc-build/releases/download/m152.7977.0.0/webrtc.windows_x86_64.zip" -o $archive
+        if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() -ne "fbc4afe2f9e0a8a42ca8afb94f0ba37511c0dba7728be012edee86ee848435a4") { throw "libwebrtc archive checksum mismatch" }
+        Expand-Archive -Force $archive "$env:RUNNER_TEMP\webrtc-m152.7977.0.0"
+        Remove-Item $archive
+
+    - name: WEBRTC_ROOT を設定する
+      shell: pwsh
+      run: '"WEBRTC_ROOT=$env:RUNNER_TEMP\webrtc-m152.7977.0.0\webrtc" >> $env:GITHUB_ENV'
+
+    # ウィンドウの中身（Flutter）を取り込む CMake の設定を作る（make windows-host-ui と同じ）
+    - name: ホスト UI の CMake 設定を作る
+      shell: pwsh
+      working-directory: apps/host_ui
+      run: flutter build windows --config-only --release
