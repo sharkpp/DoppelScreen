@@ -1,0 +1,197 @@
+# macOS / Windows のホストをビルドし、GitHub のリリースに公開する。
+#
+# - 版のタグ（v1.2.3、v1.2.3-rc.1）を push したとき: そのタグのリリースを作る
+# - 手動（workflow_dispatch）のとき: 選んだブランチの先頭に manual-build タグを付け直し、
+#   manual-build のリリースを作り直す（プレリリース扱い）
+#
+# macOS は Developer ID で署名・notarize する。リポジトリの Secrets に次を登録しておく:
+#   MACOS_CERTIFICATE_P12       Developer ID Application 証明書と秘密鍵の .p12 を base64 にしたもの
+#   MACOS_CERTIFICATE_PASSWORD  その .p12 のパスワード
+#   APPLE_ID                    notarization に使う Apple ID
+#   APPLE_TEAM_ID               Team ID
+#   APPLE_APP_PASSWORD          Apple ID の App 用パスワード
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && 'manual-build' || github.ref_name }}
+
+# manual-build のタグとリリースを付け直す処理が並ばないようにする
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && 'manual-build' || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  # 版はタグと各プラットフォームの定義の両方にある。食い違ったまま配らない
+  version:
+    name: 版の確認
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: タグと版の一致を確かめる
+        if: github.ref_type == 'tag'
+        run: |
+          # プレリリースの接尾辞（-rc.1 など）は CFBundleShortVersionString に入れられないので比べない
+          version="${GITHUB_REF_NAME#v}"
+          version="${version%%-*}"
+          status=0
+          check() {
+            if [ "$2" != "$version" ]; then
+              echo "::error file=$1::$1 の版（$2）がタグ（$GITHUB_REF_NAME）と一致しません"
+              status=1
+            fi
+          }
+          check apps/macos/project.yml "$(sed -n 's/^ *MARKETING_VERSION: "\(.*\)"$/\1/p' apps/macos/project.yml)"
+          check apps/windows/CMakeLists.txt "$(sed -n 's/^project(DoppelScreenWindows VERSION \([0-9.]*\) .*/\1/p' apps/windows/CMakeLists.txt)"
+          check apps/windows/resources/DoppelScreen.rc "$(sed -n 's/.*VALUE "ProductVersion", "\(.*\)"$/\1/p' apps/windows/resources/DoppelScreen.rc)"
+          exit $status
+
+  macos:
+    name: macOS ホスト
+    needs: [test, version]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-macos
+
+      # 証明書と notarytool の資格情報を使い捨てのキーチェーンへ入れる（scripts/release.sh の前提）
+      - name: 署名の準備
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          missing=0
+          for name in MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Secret $name が未設定です（.github/workflows/release.yml の冒頭）"
+              missing=1
+            fi
+          done
+          [ "$missing" = 0 ] || exit 1
+
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          password="$(openssl rand -hex 16)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm "$RUNNER_TEMP/certificate.p12"
+          # codesign から鍵を使うときに確認ダイアログで止まらないようにする
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+
+          # codesign と notarytool が既定の検索経路で見つけられるようにする
+          read -r -a existing <<< "$(security list-keychains -d user | tr -d '"' | xargs)"
+          security list-keychains -d user -s "$keychain" "${existing[@]}"
+          security default-keychain -s "$keychain"
+
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | head -n 1)"
+          if [ -z "$identity" ]; then
+            echo "::error::MACOS_CERTIFICATE_P12 に Developer ID Application の証明書が含まれていません"
+            exit 1
+          fi
+          echo "SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+          xcrun notarytool store-credentials doppelscreen \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" \
+            --keychain "$keychain"
+
+      - name: 署名・notarize 済みの配布物を作る
+        run: make macos-release SIGNING_IDENTITY="$SIGNING_IDENTITY" NOTARY_PROFILE=doppelscreen
+
+      - name: 配布物の名前を揃える
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          mv apps/macos/dist/DoppelScreen-*.zip "$RUNNER_TEMP/release/DoppelScreen-$RELEASE_TAG-macos.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: ${{ runner.temp }}/release/*.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows ホスト
+    needs: [test, version]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-windows
+      # 配布物にテストの実行ファイルを混ぜない
+      - name: 構成
+        working-directory: apps/windows
+        run: cmake --preset windows-x64 -DBUILD_TESTING=OFF
+      - name: ビルド
+        working-directory: apps/windows
+        run: cmake --build --preset windows-x64-release
+
+      # 実行ファイルの隣に並ぶもの（viewer.html・flutter_windows.dll・data/・ライセンス表示）をそのまま固める
+      - name: 配布物を作る
+        run: |
+          $ErrorActionPreference = "Stop"
+          $staging = "$env:RUNNER_TEMP\DoppelScreen"
+          Copy-Item -Recurse apps/windows/build/Release $staging
+          Get-ChildItem $staging -Recurse -Include *.pdb, *.lib, *.exp, *.ilk | Remove-Item
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\release" | Out-Null
+          Compress-Archive -Path $staging -DestinationPath "$env:RUNNER_TEMP\release\DoppelScreen-$env:RELEASE_TAG-windows-x64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: ${{ runner.temp }}/release/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: リリースに公開
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          path: release
+          merge-multiple: true
+
+      # ビルドが通ってから付け直す。失敗したときに、タグだけ進んで中身が古いリリースを残さない
+      - name: manual-build を付け直して公開
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if gh release view manual-build >/dev/null 2>&1; then
+            gh release delete manual-build --yes
+          fi
+          git tag -f manual-build "$GITHUB_SHA"
+          git push -f origin refs/tags/manual-build
+          gh release create manual-build release/* \
+            --prerelease \
+            --title "Manual build (${GITHUB_SHA::7})" \
+            --notes "手動ビルド。\`$GITHUB_REF_NAME\` の ${GITHUB_SHA} から作成（$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID）。"
+
+      - name: 版のリリースを公開
+        if: github.ref_type == 'tag'
+        run: |
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --verify-tag \
+            --generate-notes \
+            --title "DoppelScreen $GITHUB_REF_NAME" \
+            "${prerelease[@]}"
