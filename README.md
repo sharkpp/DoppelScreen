@@ -59,6 +59,14 @@ make e2e                     # ホストを起動し、実ブラウザから繋�
 
 Windows 11 での依存準備とビルド手順は [apps/windows/README.md](apps/windows/README.md) を参照してください。
 
+## CI とリリース
+
+- **Test**（[.github/workflows/test.yml](.github/workflows/test.yml)）: `main` への push と PR で、ビューア・言語定義・ホスト UI・macOS / Windows の単体テストを回します。`make e2e` は画面収録の許可が要るため対象外です。
+- **Release**（[.github/workflows/release.yml](.github/workflows/release.yml)）: テストを通したうえで macOS（署名・notarize 済み）と Windows x64 の zip を作り、GitHub のリリースに公開します。
+  - `v1.2.3` の形のタグを push すると、そのタグのリリースを作ります。タグの版は `apps/macos/project.yml`・`apps/windows/CMakeLists.txt`・`apps/windows/resources/DoppelScreen.rc` の版と一致させてください（`-rc.1` などの接尾辞が付いたタグはプレリリースになります）。
+  - Actions から手動で実行すると、選んだブランチの先頭に `manual-build` タグを付け直し、`manual-build` のリリース（プレリリース）を作り直します。
+  - macOS の署名には Secrets（`MACOS_CERTIFICATE_P12`・`MACOS_CERTIFICATE_PASSWORD`・`APPLE_ID`・`APPLE_TEAM_ID`・`APPLE_APP_PASSWORD`）が要ります。中身はワークフローの冒頭に書いてあります。
+
 文言を変えるときは `i18n/ja.yaml` / `i18n/en.yaml` を直して `make i18n` を実行してください
 （[docs/STACK.md §6.2](docs/STACK.md)）。アイコンは `assets/icon/doppelscreen.svg` が原本で、
 `make icon` が各 OS のサイズを書き出します（[docs/STACK.md §6.3](docs/STACK.md)）。

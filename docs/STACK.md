@@ -669,6 +669,9 @@ notarytool の資格情報は開発者ごとに用意し、リポジトリには
   libwebrtc（BSD 3-Clause）も swift-*（Apache-2.0）もバイナリ配布の条件にしている
   （[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md)）。**リリースのときだけ入れると忘れるので、
   開発ビルドから同じ形で入れる。**
+- GitHub Actions（`.github/workflows/release.yml`）も同じスクリプトを呼ぶ。証明書と notarytool の
+  資格情報は Secrets から使い捨てのキーチェーンへ入れる。**版はタグと `project.yml` などの定義の
+  両方にあるため、一致しなければ配布物を作らない**（定義をタグから書き換える仕組みは持たない）。
 
 ### 2.18 ホスト UI の構え
 
@@ -897,6 +900,10 @@ Dock タイルを持たないアプリ（§2.18）では差し替え前の仮画
 | 言語定義と生成物の整合 | 生成しなおして差分を見る | `make i18n-check` |
 | end-to-end | Playwright + 実 Chrome。macOS ランナーで実ホストを起動する | `make e2e` |
 | glass-to-glass 遅延 | 手動。カメラ同時撮影（SPEC.md §3.3）。リリースごとに記録 | `make latency-clock` |
+
+CI（`.github/workflows/test.yml`）は e2e と glass-to-glass 以外を回す。e2e は実ホストに画面収録の
+許可が要り、GitHub のホストランナーでは与えられない。開発用の署名証明書もランナーには無いので、
+`make macos-test XCODEBUILD_ARGS="CODE_SIGN_IDENTITY=-"` で ad-hoc 署名にする。
 
 キャプチャ層は実機依存で CI に載せづらいため、**その周辺（プロトコル・ペアリング・追従ロジック）を実機なしでテストできる形に切り出しておく**ことが設計上の要件になる。
 
